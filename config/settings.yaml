@@ -1,0 +1,96 @@
+# All paths are relative to the project root (Voltera-Evsight/prod). Scripts must be executed from the root directory.
+# Filenames below are treated as required artifacts. Missing files will cause the run to fail.
+
+paths:
+  data_root: "data"
+
+  inputs:
+    sites: "data/inputs/sites"
+    known_sites_dir: "data/inputs/sites/known-sites"
+    geofence_dir: "data/inputs/sites/geofence-data"
+    spatial: "data/inputs/spatial"
+    mastergeocode: "data/inputs/mastergeocode"
+    external: "data/inputs/external"
+    competitor_tracker: "data/inputs/Competitor Tracker.csv"
+
+  staged: "data/staged"
+  outputs: "data/outputs"
+  archive_root: "data/outputs/archive"
+
+
+filenames:
+  known_sites: "AV_Customer_and_Voltera_Sites.csv"
+  master_geocode: "CLEAN_Tract_County_Zip_City_State_MSA_MasterFile.xlsx"
+  cleaned_sites_refactored: "Clean_Combine_VolteraSites_CustomerInterests-Refactored.csv"
+  tract_site_interactions_refactored: "Integration_Customer_Voltera_Interact_Tract-Refactored.csv"
+  aggregations_refactored: "Integration_Voltera_Customer_Interests_Regions_Count_SUM-Refactored.xlsx"
+  master_integration_refactored: "Master Integration - AV Customer - for model-Refactored.xlsx"
+  geofence_tracts: "Geofence_Tracts_Refactored.xlsx"
+  
+  external_demographic: "Integration_Demographic.xlsx"
+  external_climate: "Integration_Climate.xlsx"
+  external_avtesting: "Integration_AVTestingSite_Regions_Count_SUM.xlsx"
+  external_ports: "Integration_Port_Interact_Regions_Count_Volume_tonnage.xlsx"
+  external_airports: "Integration_Airport_Interact_Regions_Count_Volume.xlsx"
+  external_ev_stations: "Integration_EV_ChargingStaions_Regions_Count.xlsx"
+  external_electricity: "Integration_Electricity_Price.xlsx"
+  external_gas: "Integration_Gas_Price.xlsx"
+  external_labor: "Integration_Labor_Cost.xlsx"
+  external_land: "Integration_Land_Price.xlsx"
+  external_risk: "Integration_National_Risk.xlsx"
+  external_regulation: "Integration_Regulatory_Support.xlsx"
+  external_niq: "Integration_NIQ.xlsx"
+  
+ml:
+  msa_thesis_overrides:
+    - msa_code: "San Diego-Chula Vista-Carlsbad, CA" # Please put Correct MSA code
+      label: "San Diego AV"
+      segment: "AV"
+      count_customer: 4
+      total_stall: 130
+      
+    - msa_code: "Nashville-Davidson--Murfreesboro--Franklin, TN" # Please put Correct MSA code
+      label: "Nashville AV"
+      segment: "AV"
+      count_customer: 4
+      total_stall: 120
+  target_y:
+    msa:
+      buffer_miles: 5      # uses 'Count Customer - 5 mile - AV'
+      segment: "AV"
+    county:
+      buffer_miles: 3      # uses 'Count Customer - 3 mile - AV'
+      segment: "AV"
+    tract:
+      buffer_miles: 3      # uses 'Count Customer - 3 mile - AV'
+      segment: "AV"
+       
+  ml_outputs:
+    rankings_workbook: "4Cs_AVCustomer_Rankings_AllLevels-refactored.xlsx" 
+    msa:
+      model:   "4Cs_MSA+geofence+_trained_model_std_scaler_3miles-fs-refactored.sav"
+      ranking: "4Cs_AVCustomer_MSA+geofence+_3mile_fs_Prediction_Results-refactored.xlsx"
+    county:
+      model:   "4Cs_County+geofence+_trained_model_std_scaler_3miles-fs-refactored.sav"
+      ranking: "4Cs_AVCustomer_County+geofence+_3mile_fs_Prediction_Results-refactored.xlsx"
+    tract:
+      model:   "4Cs_Tract+geofence+_trained_model_std_scaler_3miles-fs-refactored.sav"
+      ranking: "4Cs_AVCustomer_Tract+geofence+_3mile_fs_Prediction_Results-refactored.xlsx"
+
+  train_test_split:
+    test_size: 0.33
+    random_state: 9
+
+#Export configuration
+exports:
+  output_dir: "data/exports"
+  formats:
+    - csv
+    - excel
+    - geojson
+    - kml
+    - kmz
+  simplification:
+    kml_tolerance: 0.005  # ~500m precision for Google Earth compatibility (<250K vertices)
+    frontend_tolerance: 0.0001  # ~10m precision for frontend - much smaller to avoid gaps/overlaps between adjacent polygons
+    preserve_topology: true
