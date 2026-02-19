@@ -1,14 +1,54 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
+
+// Resolve python binary: prefer venv, fall back to python3/python
+const PYTHON = fs.existsSync(path.join(__dirname, 'venv/bin/python'))
+  ? path.join(__dirname, 'venv/bin/python')
+  : 'python3';
 
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     react(),
     {
       name: 'serve-data-exports',
       configureServer(server) {
+        // POST /api/salesforce/refresh — re-sync SF data then rebuild competitor tracker
+        server.middlewares.use('/api/salesforce/refresh', (req, res, next) => {
+          if (req.method !== 'POST') return next();
+
+          res.setHeader('Content-Type', 'application/json');
+          const start = Date.now();
+          const elapsed = () => `${((Date.now() - start) / 1000).toFixed(1)}s`;
+
+          try {
+            execSync(`${PYTHON} -m src.exports.export_salesforce`, {
+              cwd: __dirname,
+              timeout: 120_000,
+              stdio: 'pipe',
+            });
+            execSync(`${PYTHON} -m src.exports.export_competitor_tracker`, {
+              cwd: __dirname,
+              timeout: 60_000,
+              stdio: 'pipe',
+            });
+            res.statusCode = 200;
+            res.end(JSON.stringify({ status: 'ok', duration: elapsed() }));
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({
+              status: 'error',
+              duration: elapsed(),
+              message: err.stderr?.toString().slice(0, 500) || err.message,
+            }));
+          }
+        });
+
+        // Serve static JSON exports
         server.middlewares.use('/data/exports', (req, res, next) => {
           const filePath = path.join(__dirname, 'data/exports', req.url || '');
           if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
