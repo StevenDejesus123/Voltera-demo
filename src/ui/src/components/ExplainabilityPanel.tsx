@@ -16,7 +16,7 @@ const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = {
   stateFundingCount:     'sum',
   evStationCountMSA:     'sum',
   areaSqrtMiles:         'sum',
-  // max — non-additive counts (shared infrastructure across selected regions)
+  // infrastructure counts — see resolveAggType() for level-specific logic
   airportCount:          'max',
   avTestingCount:        'max',
   avTestingVehicles:     'max',
@@ -39,10 +39,31 @@ const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = {
   earthquakeRisk:        'avg',
 };
 
-function aggregateDetails(detailsList: (RegionDetails | undefined)[]): RegionDetails {
+/**
+ * Infrastructure fields use different aggregation depending on geo level:
+ *  - County (0-mile buffer): regions are non-overlapping → sum is correct
+ *  - Tract (25-mile buffer): heavy overlap between adjacent tracts → max avoids
+ *    double-counting the same airports/AV sites across neighboring tracts
+ */
+const INFRA_FIELDS_OVERLAP: Set<keyof RegionDetails> = new Set([
+  'airportCount', 'avTestingCount', 'avTestingVehicles',
+]);
+
+function resolveAggType(key: keyof RegionDetails, geoLevel: GeoLevel | string): AggType {
+  const base = FIELD_AGGREGATION[key];
+  if (!base) return 'avg';
+  if (INFRA_FIELDS_OVERLAP.has(key)) {
+    // County uses 0-mile buffer (within boundary, non-overlapping) → sum
+    // Tract uses 25-mile buffer (heavily overlapping) → max
+    return geoLevel.toUpperCase() === 'COUNTY' ? 'sum' : 'max';
+  }
+  return base;
+}
+
+function aggregateDetails(detailsList: (RegionDetails | undefined)[], geoLevel: GeoLevel | string = 'County'): RegionDetails {
   const result: Partial<RegionDetails> = {};
   for (const key of Object.keys(FIELD_AGGREGATION) as (keyof RegionDetails)[]) {
-    const aggType = FIELD_AGGREGATION[key];
+    const aggType = resolveAggType(key, geoLevel);
     const values = detailsList
       .map(d => d?.[key] as number | undefined)
       .filter((v): v is number => v !== undefined && v !== null && !isNaN(v as number));
@@ -52,6 +73,13 @@ function aggregateDetails(detailsList: (RegionDetails | undefined)[]): RegionDet
       : aggType === 'max'
         ? Math.max(...values)
         : values.reduce((a, b) => a + b, 0) / values.length;
+  }
+  // True deduplication for AV testing: union participant lists, derive count from unique set
+  const allParticipants = detailsList.flatMap(d => d?.avTestingParticipants ?? []);
+  if (allParticipants.length > 0) {
+    const uniqueParticipants = [...new Set(allParticipants)].sort();
+    result.avTestingParticipants = uniqueParticipants;
+    result.avTestingCount = uniqueParticipants.length;
   }
   return result as RegionDetails;
 }
@@ -210,7 +238,7 @@ interface DetailSectionsProps {
 
 function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: DetailSectionsProps) {
   const agg = (field: keyof RegionDetails): AggType | undefined =>
-    showAggBadges ? FIELD_AGGREGATION[field] : undefined;
+    showAggBadges ? resolveAggType(field, geoLevel) : undefined;
 
   return (
     <div className="space-y-4">
@@ -231,14 +259,13 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
               label={isAirportTract ? 'Nearby Airports (25mi)' : 'Nearby Airports'}
               value={formatNumber(details.airportCount)}
               icon={Building2}
-              aggregation={agg('airportCount')}
             />
           )}
           {shouldShow('avTestingCount', geoLevel) && details.avTestingCount !== undefined && (
-            <DetailItem label="AV Testing Sites" value={formatNumber(details.avTestingCount)} icon={Car} aggregation={agg('avTestingCount')} />
+            <DetailItem label="AV Testing Sites" value={formatNumber(details.avTestingCount)} icon={Car} />
           )}
           {shouldShow('avTestingVehicles', geoLevel) && details.avTestingVehicles !== undefined && (
-            <DetailItem label="AV Testing Vehicles" value={formatNumber(details.avTestingVehicles)} icon={Car} aggregation={agg('avTestingVehicles')} />
+            <DetailItem label="AV Testing Vehicles" value={formatNumber(details.avTestingVehicles)} icon={Car} />
           )}
         </div>
       </div>
@@ -511,7 +538,7 @@ export function ExplainabilityPanel({
     const geoLevel = regions[0].geoLevel;
     const isAirportTract = geoLevel.toUpperCase() === 'TRACT';
     const aggregated = allDetails && allDetails.some(Boolean)
-      ? aggregateDetails(allDetails)
+      ? aggregateDetails(allDetails, geoLevel)
       : null;
 
     const totalCustomers = regions.reduce((s, r) => s + r.customerCount, 0);
@@ -557,7 +584,7 @@ export function ExplainabilityPanel({
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
             <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400" /> <span className="text-blue-700 font-medium">sum</span> = total</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400" /> <span className="text-amber-700 font-medium">avg</span> = average</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-green-200 border border-green-400" /> <span className="text-green-700 font-medium">max</span> = highest value</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-green-200 border border-green-400" /> <span className="text-green-700 font-medium">max</span> = est. unique (overlapping buffers)</span>
           </div>
 
           {/* Key Metrics */}
@@ -767,14 +794,19 @@ export function ExplainabilityPanel({
               ))}
             </div>
           </div>
-        ) : singleRegion.factors && singleRegion.factors.length > 0 && (
+        ) : singleRegion.factors && singleRegion.factors.length > 0 && (() => {
+          const visibleFactors = singleRegion.factors.filter(
+            f => !f.name?.toLowerCase().includes('land value')
+          );
+          if (visibleFactors.length === 0) return null;
+          return (
           <div>
             <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-indigo-600" />
               Top Contributing Factors
             </h3>
             <div className="space-y-3">
-              {singleRegion.factors.map((factor, index) => (
+              {visibleFactors.map((factor, index) => (
                 <div key={index} className={`p-4 rounded-lg border ${getImpactColor(factor.impact)}`}>
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -790,7 +822,8 @@ export function ExplainabilityPanel({
               ))}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Additional Context */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

@@ -29,6 +29,7 @@ export interface RegionDetails {
 
   // County-level fields
   avTestingVehicles?: number;
+  avTestingParticipants?: string[];
   areaSqrtMiles?: number;
   publicTransitPct?: number;
   stormRisk?: number;
