@@ -1,0 +1,45 @@
+/* Loaded AFTER leaflet.css so these overrides always win */
+
+/* Force pencil cursor on ALL child elements when lasso tool is active.
+   Leaflet sets cursor:pointer on interactive SVG paths, which would override
+   the container-level cursor without !important. */
+.lasso-active,
+.lasso-active * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E") 1 15, crosshair !important;
+}
+
+/* Competitor/Pipeline click popup */
+.competitor-popup.leaflet-popup {
+  margin-bottom: 0;
+}
+.competitor-popup .leaflet-popup-content-wrapper {
+  padding: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.competitor-popup .leaflet-popup-content {
+  margin: 0;
+  padding: 0;
+  width: auto !important;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.competitor-popup .leaflet-popup-tip-container {
+  display: none;
+}
+
+/* Competitor/Pipeline hover tooltip */
+.competitor-tooltip.leaflet-tooltip {
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  background: white;
+  color: #111;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.competitor-tooltip.leaflet-tooltip::before {
+  display: none;
+}
