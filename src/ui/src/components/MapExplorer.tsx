@@ -11,6 +11,7 @@ import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState,
 import { getMockRegions, getCountiesForMSA, getTractsForCounty, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, getRegionDetails } from '../dataLoader/frontendLoader';
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
 import { getCompetitorSites, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
+import { loadSalesforceData } from '../dataLoader/salesforceLoader';
 
 /**
  * Handles multi-select toggle logic for a list of regions.
@@ -88,6 +89,8 @@ export function MapExplorer() {
   const [selectedCountyIds, setSelectedCountyIds] = useState<string[]>([]);
   const [selectedTractIds, setSelectedTractIds] = useState<string[]>([]);
   const [expandedPanel, setExpandedPanel] = useState<GeoLevel | null>(null);
+  const [filterCollapsed, setFilterCollapsed] = useState(false);
+  const [regionAnalysisCollapsed, setRegionAnalysisCollapsed] = useState(true);
 
   // Market Intelligence / Competitor Tracker state
   const [showCompetitorPanel, setShowCompetitorPanel] = useState(false);
@@ -99,9 +102,10 @@ export function MapExplorer() {
   const [competitorStates, setCompetitorStates] = useState<Set<string>>(new Set());
   const [competitorDataLoaded, setCompetitorDataLoaded] = useState(false);
 
-  // Load competitor data on mount and listen for load event
+  // Load competitor + Salesforce data on mount and listen for load events
   useEffect(() => {
     loadCompetitorData();
+    loadSalesforceData();
     const handleLoaded = () => setCompetitorDataLoaded(true);
     window.addEventListener('competitor:loaded', handleLoaded);
     return () => window.removeEventListener('competitor:loaded', handleLoaded);
@@ -118,6 +122,26 @@ export function MapExplorer() {
       states: competitorStates,
     });
   }, [competitorCompanies, competitorCategories, competitorStatuses, competitorMSAs, competitorStates, competitorDataLoaded]);
+
+  // Competitor sites scoped to the selected MSA for county/tract pin display.
+  // The global `competitorSites` list covers all geographies; narrowing to the
+  // selected MSA ensures pins match the logos shown in the MSA view.
+  const msaCompetitorSites = useMemo(() => {
+    if (!selectedMSA) return [];
+    const msaName = selectedMSA.name.toLowerCase().trim();
+    // Strip state suffix (after comma) so "Los Angeles-Long Beach-Anaheim, CA"
+    // matches "Los Angeles-Long Beach-Anaheim" in the competitor data.
+    const msaBase = msaName.split(',')[0].trim();
+    return competitorSites.filter(s => {
+      if (!s.msa) return false;
+      const siteMsa = s.msa.toLowerCase().trim();
+      const siteBase = siteMsa.split(',')[0].trim();
+      return siteMsa === msaName
+        || siteMsa.includes(msaBase)
+        || msaBase.includes(siteBase)
+        || siteBase.includes(msaBase);
+    });
+  }, [competitorSites, selectedMSA?.id]);
 
   // Holds factors+details for the currently-selected region (loaded from sidecar)
   const [selectedRegionDetails, setSelectedRegionDetails] = useState<{ factors: any[]; details: any } | null>(null);
@@ -195,13 +219,12 @@ export function MapExplorer() {
     ? reRankByOriginalOrder(getCountiesForMSA(selectedMSA.id, segment, rankingThreshold, activeScenario, selectedCountyIds))
     : [];
 
-  // Get tracts for all selected counties (union) or single selected county
-  function getCountyIdsForTracts(): string[] {
-    if (selectedCounties.length > 0) return selectedCounties.map(c => c.id);
-    if (selectedCounty) return [selectedCounty.id];
-    return [];
-  }
-  const countyIdsForTracts = getCountyIdsForTracts();
+  // County IDs for tract lookup (multi-select union or single county)
+  const countyIdsForTracts = selectedCounties.length > 0
+    ? selectedCounties.map(c => c.id)
+    : selectedCounty
+      ? [selectedCounty.id]
+      : [];
 
   const tractsRaw = countyIdsForTracts.length > 0
     ? reRankByOriginalOrder(getTractsForCounties(countyIdsForTracts, segment, rankingThreshold, activeScenario, selectedTractIds))
@@ -260,6 +283,18 @@ export function MapExplorer() {
       loadPolygonsOnDemand('County');
     }
   }, [selectedMSA?.id]);
+
+  // Auto-expand region analysis when an MSA is first selected
+  useEffect(() => {
+    if (selectedMSA) setRegionAnalysisCollapsed(false);
+  }, [selectedMSA?.id]);
+
+  // Auto-collapse region analysis when other right panels open
+  useEffect(() => {
+    if (showCompare || showWhatIf || showSavedViews) {
+      setRegionAnalysisCollapsed(true);
+    }
+  }, [showCompare, showWhatIf, showSavedViews]);
 
   // Lazy-load Tract data + per-county polygons when a County is first selected
   useEffect(() => {
@@ -349,27 +384,83 @@ export function MapExplorer() {
     setSelectedTract(null);
   }
 
-  // Clear loading when counties/tracts arrays update
+  // Clear loading flags when data arrives or parent selection is removed
   useEffect(() => {
-    if (selectedMSA && loadingCounties) {
-      setLoadingCounties(false);
-    }
-    if (!selectedMSA) {
-      setLoadingCounties(false);
-    }
+    setLoadingCounties(false);
   }, [counties, selectedMSA]);
 
   useEffect(() => {
-    if ((selectedCounty || selectedCounties.length > 0) && loadingTracts) {
-      setLoadingTracts(false);
-    }
-    if (!selectedCounty && selectedCounties.length === 0) {
-      setLoadingTracts(false);
-    }
+    setLoadingTracts(false);
   }, [tracts, selectedCounty, selectedCounties]);
 
   function handleExpandPanel(level: GeoLevel): void {
     setExpandedPanel(expandedPanel === level ? null : level);
+  }
+
+  function renderRegionAnalysisPanel(): React.ReactNode {
+    const collapseProps = {
+      collapsed: regionAnalysisCollapsed,
+      onToggleCollapse: () => setRegionAnalysisCollapsed(prev => !prev),
+    };
+
+    // Multi-region mode (lasso or ctrl+click)
+    let multiRegions: Region[] = [];
+    if (selectedCounties.length > 1) {
+      multiRegions = selectedCounties;
+    } else if (selectedTracts.length > 1) {
+      multiRegions = selectedTracts;
+    }
+
+    if (multiRegions.length > 1) {
+      const allMultiDetails = multiRegions.map(r => {
+        const d = getRegionDetails(r.id, r.geoLevel);
+        return d?.details as RegionDetails | undefined;
+      });
+      return (
+        <ExplainabilityPanel
+          regions={multiRegions}
+          allDetails={allMultiDetails}
+          isLoadingDetails={detailsLoading}
+          onClose={() => {
+            setSelectedCounties([]);
+            setSelectedTracts([]);
+            setSelectedCounty(null);
+            setSelectedTract(null);
+          }}
+          {...collapseProps}
+        />
+      );
+    }
+
+    // Single-region or empty mode
+    const activeRegion = selectedTract || selectedCounty || selectedMSA;
+
+    const regionWithDetails = activeRegion
+      ? {
+          ...activeRegion,
+          factors: selectedRegionDetails?.factors ?? [],
+          details: selectedRegionDetails?.details ?? undefined,
+        }
+      : undefined;
+
+    const handleCloseRegion = activeRegion
+      ? () => {
+          setSelectedTract(null);
+          setSelectedCounty(null);
+          setSelectedMSA(null);
+        }
+      : undefined;
+
+    return (
+      <ExplainabilityPanel
+        region={regionWithDetails}
+        isLoadingDetails={detailsLoading}
+        detailsProgress={detailsProgress}
+        onClose={handleCloseRegion}
+        onAddToCompare={activeRegion ? () => handleAddToCompare(activeRegion) : undefined}
+        {...collapseProps}
+      />
+    );
   }
 
   return (
@@ -379,16 +470,35 @@ export function MapExplorer() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold text-gray-900">Site Ranking Explorer</h1>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowCompetitorPanel(!showCompetitorPanel)}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                showCompetitorPanel
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-700'
-              }`}
-            >
-              Market Intelligence
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowCompetitorPanel(!showCompetitorPanel)}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  showCompetitorPanel
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-700'
+                }`}
+              >
+                Market Intelligence
+              </button>
+              {showCompetitorPanel && (
+                <CompetitorTrackerPanel
+                  onClose={() => setShowCompetitorPanel(false)}
+                  selectedCompanies={competitorCompanies}
+                  onCompaniesChange={setCompetitorCompanies}
+                  selectedCategories={competitorCategories}
+                  onCategoriesChange={setCompetitorCategories}
+                  selectedStatuses={competitorStatuses}
+                  onStatusesChange={setCompetitorStatuses}
+                  selectedMSAs={competitorMSAs}
+                  onMSAsChange={setCompetitorMSAs}
+                  selectedStates={competitorStates}
+                  onStatesChange={setCompetitorStates}
+                  showLayer={showCompetitorLayer}
+                  onToggleLayer={setShowCompetitorLayer}
+                />
+              )}
+            </div>
             <button
               onClick={() => setShowSavedViews(!showSavedViews)}
               className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
@@ -445,6 +555,8 @@ export function MapExplorer() {
           selectedTract={selectedTract}
           multiSelectedCounties={selectedCounties}
           multiSelectedTracts={selectedTracts}
+          collapsed={filterCollapsed}
+          onToggleCollapse={() => setFilterCollapsed(prev => !prev)}
         />
 
         {/* Center - 3 Panel Layout */}
@@ -464,6 +576,8 @@ export function MapExplorer() {
             onMapViewChange={setMsaMapView}
             competitorSites={competitorSites}
             showCompetitorLayer={showCompetitorLayer}
+            competitorCategories={competitorCategories}
+            competitorCompanies={competitorCompanies}
           />
 
           {/* County Panel */}
@@ -484,7 +598,7 @@ export function MapExplorer() {
             onLassoSelect={handleCountyLassoSelect}
             savedMapView={countyMapView}
             onMapViewChange={setCountyMapView}
-            competitorSites={competitorSites}
+            competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
           />
 
@@ -506,30 +620,12 @@ export function MapExplorer() {
             onLassoSelect={handleTractLassoSelect}
             savedMapView={tractMapView}
             onMapViewChange={setTractMapView}
-            competitorSites={competitorSites}
+            competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
           />
         </div>
 
         {/* Right Panels */}
-        {showCompetitorPanel && (
-          <CompetitorTrackerPanel
-            onClose={() => setShowCompetitorPanel(false)}
-            selectedCompanies={competitorCompanies}
-            onCompaniesChange={setCompetitorCompanies}
-            selectedCategories={competitorCategories}
-            onCategoriesChange={setCompetitorCategories}
-            selectedStatuses={competitorStatuses}
-            onStatusesChange={setCompetitorStatuses}
-            selectedMSAs={competitorMSAs}
-            onMSAsChange={setCompetitorMSAs}
-            selectedStates={competitorStates}
-            onStatesChange={setCompetitorStates}
-            showLayer={showCompetitorLayer}
-            onToggleLayer={setShowCompetitorLayer}
-          />
-        )}
-
         {showSavedViews && (
           <SavedViewsPanel
             onClose={() => setShowSavedViews(false)}
@@ -559,59 +655,11 @@ export function MapExplorer() {
               setCompareRegions(newCompare);
             }}
             allRegions={[...msas, ...counties, ...tracts]}
-            onAddRegion={(region) => handleAddToCompare(region)}
+            onAddRegion={handleAddToCompare}
           />
         )}
 
-        {!showCompare && !showWhatIf && !showSavedViews && (() => {
-          const multiRegions = selectedCounties.length > 1
-            ? selectedCounties
-            : selectedTracts.length > 1
-              ? selectedTracts
-              : [];
-
-          if (multiRegions.length > 1) {
-            const allMultiDetails = multiRegions.map(r => {
-              const d = getRegionDetails(r.id, r.geoLevel);
-              return d?.details as RegionDetails | undefined;
-            });
-            return (
-              <ExplainabilityPanel
-                regions={multiRegions}
-                allDetails={allMultiDetails}
-                isLoadingDetails={detailsLoading}
-                onClose={() => {
-                  setSelectedCounties([]);
-                  setSelectedTracts([]);
-                  setSelectedCounty(null);
-                  setSelectedTract(null);
-                }}
-              />
-            );
-          }
-
-          if (selectedMSA || selectedCounty || selectedTract) {
-            return (
-              <ExplainabilityPanel
-                region={{
-                  ...(selectedTract || selectedCounty || selectedMSA!),
-                  factors: selectedRegionDetails?.factors ?? [],
-                  details: selectedRegionDetails?.details ?? undefined,
-                }}
-                isLoadingDetails={detailsLoading}
-                detailsProgress={detailsProgress}
-                onClose={() => {
-                  setSelectedTract(null);
-                  setSelectedCounty(null);
-                  setSelectedMSA(null);
-                }}
-                onAddToCompare={() => handleAddToCompare(selectedTract || selectedCounty || selectedMSA!)}
-              />
-            );
-          }
-
-          return null;
-        })()}
+        {renderRegionAnalysisPanel()}
       </div>
     </div>
   );

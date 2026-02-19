@@ -87,12 +87,13 @@ function LassoEventHandler({
 
   // Toggle map dragging when lasso mode changes
   useEffect(() => {
+    const container = map.getContainer();
     if (enabled) {
       map.dragging.disable();
-      map.getContainer().style.cursor = 'crosshair';
+      container.classList.add('lasso-active');
     } else {
       map.dragging.enable();
-      map.getContainer().style.cursor = '';
+      container.classList.remove('lasso-active');
       // Clean up in case user toggled off mid-draw
       if (isDrawing.current) {
         isDrawing.current = false;
@@ -102,7 +103,7 @@ function LassoEventHandler({
     }
     return () => {
       map.dragging.enable();
-      map.getContainer().style.cursor = '';
+      container.classList.remove('lasso-active');
     };
   }, [enabled, map, setDrawingPoints]);
 

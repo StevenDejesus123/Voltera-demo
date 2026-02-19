@@ -1,4 +1,5 @@
-import type { Region, GeoLevel, Segment, WhatIfScenario } from '../types';
+import type { Region, GeoLevel, Segment, WhatIfScenario, SalesforceMSASummary } from '../types';
+import { getSalesforceMSASummaries } from './salesforceLoader';
 
 const BASE = '/data/exports';
 
@@ -21,6 +22,11 @@ function toKey(g: string): LevelKey {
     if (g.toLowerCase() === 'msa') return 'MSA';
     if (g.toLowerCase() === 'tract') return 'Tract';
     return 'County';
+}
+
+/** Ensure a level's regions are loaded (triggers fetch if empty and not already loading). */
+function ensureLoaded(key: LevelKey): void {
+    if (!cache[key].length && !loadingState[key]) loadLevel(key);
 }
 
 /** Generic streaming fetch helper — fires progress callbacks, returns parsed JSON. */
@@ -80,6 +86,7 @@ async function loadLevel(level: LevelKey) {
             return r as Region;
         });
         cache[level] = normalized;
+        enrichWithSalesforceData();
         loadingProgress[level] = 100;
         window.dispatchEvent(new CustomEvent('frontend:regions:updated', { detail: { level } }));
     } catch (e) {
@@ -116,12 +123,63 @@ async function loadDetails(level: LevelKey) {
     }
 }
 
+// ── Salesforce enrichment ────────────────────────────────────────────────────
+// Populates `customerCount` on cached regions from SF Sales Opportunity data.
+// MSA: matched by name. County/Tract: inherit their parent MSA's count.
+
+/** Normalize MSA name for fuzzy matching: lowercase, collapse dashes/en-dashes. */
+function normMsa(s: string): string {
+  return s.toLowerCase().trim().replace(/[\u2013\u2014-]+/g, '-');
+}
+
+function matchSfSummary(
+  msaName: string,
+  summaries: Record<string, SalesforceMSASummary>,
+): SalesforceMSASummary | null {
+  if (!msaName) return null;
+  if (summaries[msaName]) return summaries[msaName];
+  const norm = normMsa(msaName);
+  // Extract the primary city (everything before the first dash or comma)
+  const primaryCity = norm.split(/[-,]/)[0].trim();
+  for (const [key, summary] of Object.entries(summaries)) {
+    const keyNorm = normMsa(key);
+    // Exact normalized match
+    if (norm === keyNorm) return summary;
+    // Substring match (handles suffix differences like "NY-NJ-PA" vs "NY-NJ-CT-PA")
+    if (norm.includes(keyNorm) || keyNorm.includes(norm)) return summary;
+    // Primary city match (e.g. "nashville" matches "nashville-davidson-...")
+    const keyCity = keyNorm.split(/[-,]/)[0].trim();
+    if (primaryCity.length > 3 && primaryCity === keyCity) return summary;
+  }
+  return null;
+}
+
+function enrichWithSalesforceData() {
+  const summaries = getSalesforceMSASummaries();
+  if (!summaries || Object.keys(summaries).length === 0) return;
+
+  // Enrich MSAs only — customerCount is per-MSA from SF Sales Opportunities
+  for (const region of cache.MSA) {
+    const name = (region as any).msaName || region.name;
+    const sf = matchSfSummary(name, summaries);
+    if (sf) {
+      region.customerCount = sf.accountCount;
+    }
+  }
+
+  // Notify MSA listeners that data changed
+  window.dispatchEvent(new CustomEvent('frontend:regions:updated', { detail: { level: 'MSA' } }));
+}
+
+// Re-enrich whenever SF data loads (or reloads after a sync)
+window.addEventListener('salesforce:loaded', () => enrichWithSalesforceData());
+
 // Only MSA loads eagerly — County/Tract load on demand
 loadLevel('MSA');
 
 /** Trigger load for a level (no-op if already loaded/loading). */
 export function loadLevelOnDemand(level: LevelKey) {
-    if (!cache[level].length && !loadingState[level]) loadLevel(level);
+    ensureLoaded(level);
 }
 
 /** Trigger load of the details sidecar for a level.
@@ -150,7 +208,7 @@ export function getMockRegions(
     _selectedIds?: string[]
 ): Region[] {
     const key = toKey(geoLevel);
-    if (!cache[key].length && !loadingState[key]) loadLevel(key);
+    ensureLoaded(key);
     return cache[key];
 }
 
@@ -162,7 +220,7 @@ export function getCountiesForMSA(
     _selectedIds?: string[]
 ): Region[] {
     const key: LevelKey = 'County';
-    if (!cache[key].length && !loadingState[key]) loadLevel(key);
+    ensureLoaded(key);
     return cache[key].filter(
         (r) => (r as any).msaID === msaId || (r as any).msa_id === msaId || (r as any).parent_id === msaId
     );
@@ -176,7 +234,7 @@ export function getTractsForCounty(
     _selectedIds?: string[]
 ): Region[] {
     const key: LevelKey = 'Tract';
-    if (!cache[key].length && !loadingState[key]) loadLevel(key);
+    ensureLoaded(key);
     return cache[key].filter(
         (r) => (r as any).countyID === countyId || (r as any).county_id === countyId || (r as any).parent_id === countyId
     );
@@ -190,7 +248,7 @@ export function getTractsForCounties(
     _selectedIds?: string[]
 ): Region[] {
     const key: LevelKey = 'Tract';
-    if (!cache[key].length && !loadingState[key]) loadLevel(key);
+    ensureLoaded(key);
     if (countyIds.length === 0) return [];
     const countyIdSet = new Set(countyIds);
     return cache[key].filter((r) => {

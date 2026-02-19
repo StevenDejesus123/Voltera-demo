@@ -6,10 +6,8 @@ let cache: CompetitorTrackerData | null = null;
 let loading = false;
 let loadPromise: Promise<CompetitorTrackerData> | null = null;
 
-async function loadData(): Promise<CompetitorTrackerData> {
-  if (cache) return cache;
-  if (loadPromise) return loadPromise;
-
+/** Shared fetch logic used by both initial load and reload. */
+function doFetch(): Promise<CompetitorTrackerData> {
   loading = true;
   loadPromise = fetch(`${BASE}/competitorTracker.json`)
     .then(res => {
@@ -28,8 +26,13 @@ async function loadData(): Promise<CompetitorTrackerData> {
       console.error('Failed to load competitor tracker data:', err);
       throw err;
     });
-
   return loadPromise;
+}
+
+async function loadData(): Promise<CompetitorTrackerData> {
+  if (cache) return cache;
+  if (loadPromise) return loadPromise;
+  return doFetch();
 }
 
 /** Get all competitor sites. Triggers load if not cached. */
@@ -75,6 +78,11 @@ export function loadCompetitorData(): void {
   }
 }
 
+/** Returns true if the set is empty or contains the value. */
+function matchesFilter(set: Set<string> | undefined, value: string): boolean {
+  return !set || set.size === 0 || set.has(value);
+}
+
 /** Filter sites by selected criteria. */
 export function filterCompetitorSites(
   sites: CompetitorSite[],
@@ -86,24 +94,13 @@ export function filterCompetitorSites(
     states?: Set<string>;
   }
 ): CompetitorSite[] {
-  return sites.filter(site => {
-    if (filters.companies && filters.companies.size > 0 && !filters.companies.has(site.companyName)) {
-      return false;
-    }
-    if (filters.categories && filters.categories.size > 0 && !filters.categories.has(site.category)) {
-      return false;
-    }
-    if (filters.statuses && filters.statuses.size > 0 && !filters.statuses.has(site.status)) {
-      return false;
-    }
-    if (filters.msas && filters.msas.size > 0 && !filters.msas.has(site.msa)) {
-      return false;
-    }
-    if (filters.states && filters.states.size > 0 && !filters.states.has(site.state)) {
-      return false;
-    }
-    return true;
-  });
+  return sites.filter(site =>
+    matchesFilter(filters.companies, site.companyName)
+    && matchesFilter(filters.categories, site.category)
+    && matchesFilter(filters.statuses, site.status)
+    && matchesFilter(filters.msas, site.msa)
+    && matchesFilter(filters.states, site.state)
+  );
 }
 
 /** Get color for a category. */
@@ -117,9 +114,25 @@ export function getCategoryColor(category: string): string {
       return '#EF4444'; // Red
     case 'Interest':
       return '#EAB308'; // Yellow
+    case 'Pipeline':
+      return '#14B8A6'; // Teal
     default:
       return '#6B7280'; // Gray
   }
+}
+
+/** Invalidate cache so next access re-fetches. */
+export function invalidateCompetitorCache(): void {
+  cache = null;
+  loadPromise = null;
+  loading = false;
+}
+
+/** Force re-fetch without clearing existing cache (avoids flash of empty data). */
+export function reloadCompetitorData(): void {
+  loadPromise = null;
+  loading = false;
+  doFetch();
 }
 
 /** Get sites grouped by company for toggle panel. */

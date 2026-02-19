@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Building2, Filter, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Eye, EyeOff, RefreshCw, Search, X } from 'lucide-react';
 import type { CompetitorFilters } from '../types';
 import {
   getCompetitorFilters,
@@ -7,6 +7,13 @@ import {
   getCategoryColor,
   loadCompetitorData,
 } from '../dataLoader/competitorLoader';
+import {
+  getSalesforceLastUpdated,
+  refreshSalesforceData,
+  loadSalesforceData,
+} from '../dataLoader/salesforceLoader';
+
+// ── Types & Helpers ──────────────────────────────────────────────────────────
 
 interface CompetitorTrackerPanelProps {
   onClose: () => void;
@@ -14,6 +21,7 @@ interface CompetitorTrackerPanelProps {
   onCompaniesChange: (companies: Set<string>) => void;
   selectedCategories: Set<string>;
   onCategoriesChange: (categories: Set<string>) => void;
+  // Kept for parent compatibility — not used in the popover UI
   selectedStatuses: Set<string>;
   onStatusesChange: (statuses: Set<string>) => void;
   selectedMSAs: Set<string>;
@@ -24,127 +32,30 @@ interface CompetitorTrackerPanelProps {
   onToggleLayer: (show: boolean) => void;
 }
 
-const CategoryBadge = ({ category, selected, onClick }: { category: string; selected: boolean; onClick: () => void }) => {
-  const color = getCategoryColor(category);
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-        selected
-          ? 'ring-2 ring-offset-1'
-          : 'opacity-60 hover:opacity-100'
-      }`}
-      style={{
-        backgroundColor: selected ? color : `${color}40`,
-        color: selected ? 'white' : color,
-        ringColor: color,
-      }}
-    >
-      {category}
-    </button>
-  );
-};
+interface DisplayCategory {
+  label: string;
+  raw: string[];   // underlying category values
+  color: string;
+}
 
-const FilterSection = ({
-  title,
-  items,
-  selected,
-  onChange,
-  defaultExpanded = false,
-}: {
-  title: string;
-  items: string[];
-  selected: Set<string>;
-  onChange: (selected: Set<string>) => void;
-  defaultExpanded?: boolean;
-}) => {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [searchTerm, setSearchTerm] = useState('');
+const CATEGORY_ORDER = ['Customer', 'Competitor', 'Voltera'];
+const CATEGORY_MERGE: Record<string, string> = { Pipeline: 'Customer' };
 
-  const filteredItems = items.filter(item =>
-    item.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+function displayLabel(raw: string): string {
+  return CATEGORY_MERGE[raw] ?? raw;
+}
 
-  const toggleItem = (item: string) => {
-    const newSelected = new Set(selected);
-    if (newSelected.has(item)) {
-      newSelected.delete(item);
-    } else {
-      newSelected.add(item);
-    }
-    onChange(newSelected);
-  };
+function formatTimeAgo(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
-  const selectAll = () => onChange(new Set(filteredItems));
-  const selectNone = () => onChange(new Set());
-
-  return (
-    <div className="border-b border-gray-200 last:border-0">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-6 py-3 flex items-center justify-between hover:bg-gray-50"
-      >
-        <span className="font-medium text-gray-700">
-          {title}
-          {selected.size > 0 && (
-            <span className="ml-2 text-xs text-indigo-600">({selected.size})</span>
-          )}
-        </span>
-        {expanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
-      </button>
-
-      {expanded && (
-        <div className="px-6 pb-4">
-          {items.length > 5 && (
-            <input
-              type="text"
-              placeholder={`Search ${title.toLowerCase()}...`}
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent mb-3"
-            />
-          )}
-
-          <div className="flex gap-2 mb-3 text-xs">
-            <button
-              onClick={selectAll}
-              className="text-indigo-600 hover:underline"
-            >
-              Select All
-            </button>
-            <span className="text-gray-300">|</span>
-            <button
-              onClick={selectNone}
-              className="text-indigo-600 hover:underline"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div className="max-h-48 overflow-y-auto space-y-1">
-            {filteredItems.map(item => (
-              <label
-                key={item}
-                className="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-50 rounded-lg cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(item)}
-                  onChange={() => toggleItem(item)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className="text-sm text-gray-700 truncate">{item || '(empty)'}</span>
-              </label>
-            ))}
-            {filteredItems.length === 0 && (
-              <p className="text-sm text-gray-500 py-2">No items match your search</p>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+// ── Main Component ───────────────────────────────────────────────────────────
 
 export function CompetitorTrackerPanel({
   onClose,
@@ -152,168 +63,303 @@ export function CompetitorTrackerPanel({
   onCompaniesChange,
   selectedCategories,
   onCategoriesChange,
-  selectedStatuses,
-  onStatusesChange,
-  selectedMSAs,
-  onMSAsChange,
-  selectedStates,
-  onStatesChange,
   showLayer,
   onToggleLayer,
 }: CompetitorTrackerPanelProps) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [filters, setFilters] = useState<CompetitorFilters | null>(null);
   const [, setTick] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [companyQuery, setCompanyQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
 
+  // ── Data loading ───────────────────────────────────────────────────────────
   useEffect(() => {
     loadCompetitorData();
+    loadSalesforceData();
     const handler = () => {
       setFilters(getCompetitorFilters());
       setTick(t => t + 1);
     };
+    const sfHandler = () => setLastSynced(getSalesforceLastUpdated());
     window.addEventListener('competitor:loaded', handler);
-    // Check if already loaded
+    window.addEventListener('salesforce:loaded', sfHandler);
     const existing = getCompetitorFilters();
     if (existing) setFilters(existing);
-    return () => window.removeEventListener('competitor:loaded', handler);
+    const existingSynced = getSalesforceLastUpdated();
+    if (existingSynced) setLastSynced(existingSynced);
+    return () => {
+      window.removeEventListener('competitor:loaded', handler);
+      window.removeEventListener('salesforce:loaded', sfHandler);
+    };
   }, []);
 
-  const stats = getCompetitorStats();
+  // ── Click outside ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) onClose();
+    };
+    const timer = setTimeout(() => document.addEventListener('mousedown', handle), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handle);
+    };
+  }, [onClose]);
 
-  const categoryOrder = ['Voltera', 'Customer', 'Competitor', 'Interest'];
-  const sortedCategories = filters?.categories
-    ?.sort((a, b) => {
-      const aIdx = categoryOrder.indexOf(a);
-      const bIdx = categoryOrder.indexOf(b);
-      if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-      if (aIdx >= 0) return -1;
-      if (bIdx >= 0) return 1;
-      return a.localeCompare(b);
-    }) ?? [];
-
-  const toggleCategory = (category: string) => {
-    const newSelected = new Set(selectedCategories);
-    if (newSelected.has(category)) {
-      newSelected.delete(category);
-    } else {
-      newSelected.add(category);
+  // ── Salesforce refresh ─────────────────────────────────────────────────────
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshSalesforceData();
+      setLastSynced(getSalesforceLastUpdated());
+      setFilters(getCompetitorFilters());
+      setTick(t => t + 1);
+    } catch (e) {
+      console.error('Salesforce refresh failed:', e);
+    } finally {
+      setRefreshing(false);
     }
-    onCategoriesChange(newSelected);
   };
 
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const stats = getCompetitorStats();
+
+  // Merge Pipeline → Customer for display
+  const displayCategories: DisplayCategory[] = useMemo(() => {
+    const rawCats = filters?.categories ?? [];
+    const groups = new Map<string, string[]>();
+    for (const cat of rawCats) {
+      const label = displayLabel(cat);
+      groups.set(label, [...(groups.get(label) ?? []), cat]);
+    }
+    return [...groups.entries()]
+      .map(([label, raw]) => ({
+        label,
+        raw,
+        color: getCategoryColor(label === 'Customer' ? 'Customer' : raw[0]),
+      }))
+      .sort((a, b) => {
+        const ai = CATEGORY_ORDER.indexOf(a.label);
+        const bi = CATEGORY_ORDER.indexOf(b.label);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+  }, [filters?.categories]);
+
+  const allCompanies = filters?.companies ?? [];
+  const companyResults = companyQuery
+    ? allCompanies.filter(c =>
+        c.toLowerCase().includes(companyQuery.toLowerCase()) && !selectedCompanies.has(c)
+      ).slice(0, 8)
+    : [];
+
+  // ── Category toggle ────────────────────────────────────────────────────────
+  function isCategoryActive(group: DisplayCategory): boolean {
+    if (selectedCategories.size === 0) return true;
+    return group.raw.some(c => selectedCategories.has(c));
+  }
+
+  function toggleCategory(group: DisplayCategory) {
+    const next = new Set(selectedCategories);
+    if (selectedCategories.size === 0) {
+      // Currently showing all → select everything EXCEPT this group
+      for (const cat of displayCategories) {
+        if (cat.label !== group.label) cat.raw.forEach(c => next.add(c));
+      }
+    } else if (isCategoryActive(group)) {
+      group.raw.forEach(c => next.delete(c));
+      if (next.size === 0) {
+        onCategoriesChange(new Set());
+        return;
+      }
+    } else {
+      group.raw.forEach(c => next.add(c));
+    }
+    onCategoriesChange(next);
+  }
+
+  // ── Company selection ──────────────────────────────────────────────────────
+  function addCompany(name: string) {
+    const next = new Set(selectedCompanies);
+    next.add(name);
+    onCompaniesChange(next);
+    setCompanyQuery('');
+    searchRef.current?.focus();
+  }
+
+  function removeCompany(name: string) {
+    const next = new Set(selectedCompanies);
+    next.delete(name);
+    onCompaniesChange(next);
+  }
+
+  const hasAnyFilter = selectedCompanies.size > 0 || selectedCategories.size > 0;
+
   return (
-    <div className="w-96 bg-white border-l border-gray-200 overflow-hidden flex flex-col flex-shrink-0 shadow-xl">
-      {/* Header - matching ExplainabilityPanel style */}
-      <div className="sticky top-0 bg-indigo-600 text-white p-6 z-10">
-        <div className="flex items-start justify-between mb-2">
+    <div
+      ref={popoverRef}
+      className="absolute top-full right-0 mt-2 w-[400px] bg-white rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.25)] border border-gray-200/60 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2"
+      style={{ animation: 'popoverIn 150ms ease-out' }}
+    >
+      {/* ── Top bar ──────────────────────────────────────────────────────── */}
+      <div className="px-5 pt-4 pb-3">
+        <div className="flex items-center justify-between">
+          {/* Layer toggle */}
+          <button
+            onClick={() => onToggleLayer(!showLayer)}
+            className={`group flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+              showLayer
+                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            {showLayer ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            Map Pins {showLayer ? 'On' : 'Off'}
+          </button>
+
           <div className="flex items-center gap-2">
-            <Building2 className="w-5 h-5" />
-            <h2 className="font-semibold">Market Intelligence</h2>
-          </div>
-          <div className="flex items-center gap-1">
+            {/* Sync */}
             <button
-              onClick={() => onToggleLayer(!showLayer)}
-              className={`p-1 rounded transition-colors ${
-                showLayer ? 'bg-indigo-700 hover:bg-indigo-800' : 'bg-indigo-500 hover:bg-indigo-700'
-              }`}
-              title={showLayer ? 'Hide layer on map' : 'Show layer on map'}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              title="Sync from Salesforce"
             >
-              {showLayer ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+              <span className="tabular-nums">
+                {refreshing
+                  ? 'Syncing...'
+                  : lastSynced
+                    ? formatTimeAgo(lastSynced)
+                    : 'Sync'}
+              </span>
             </button>
-            <button
-              onClick={onClose}
-              className="text-white hover:bg-indigo-700 p-1 rounded transition-colors"
-            >
-              <X className="w-5 h-5" />
+
+            {/* Close */}
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
-        <p className="text-sm text-indigo-100">Competitor & Site Tracker</p>
-      </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-3 gap-4 p-6 bg-gray-50 border-b border-gray-200">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-900">{stats.totalSites}</p>
-            <p className="text-xs text-gray-500">Total Sites</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-900">{stats.sitesWithCoords}</p>
-            <p className="text-xs text-gray-500">On Map</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-900">{stats.companiesCount}</p>
-            <p className="text-xs text-gray-500">Companies</p>
-          </div>
-        </div>
-      )}
-
-      {/* Category Filters */}
-      <div className="p-6 border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-          <Filter className="w-4 h-4" />
-          Categories
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          {sortedCategories.map(category => (
-            <CategoryBadge
-              key={category}
-              category={category}
-              selected={selectedCategories.size === 0 || selectedCategories.has(category)}
-              onClick={() => toggleCategory(category)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Scrollable Filters */}
-      <div className="flex-1 overflow-y-auto">
-        {filters && (
-          <>
-            <FilterSection
-              title="Companies"
-              items={filters.companies}
-              selected={selectedCompanies}
-              onChange={onCompaniesChange}
-              defaultExpanded
-            />
-            <FilterSection
-              title="Status"
-              items={filters.statuses.filter(Boolean)}
-              selected={selectedStatuses}
-              onChange={onStatusesChange}
-            />
-            <FilterSection
-              title="MSA"
-              items={filters.msas.filter(Boolean)}
-              selected={selectedMSAs}
-              onChange={onMSAsChange}
-            />
-            <FilterSection
-              title="State"
-              items={filters.states.filter(Boolean)}
-              selected={selectedStates}
-              onChange={onStatesChange}
-            />
-          </>
+        {/* Stats */}
+        {stats && (
+          <p className="mt-2.5 text-xs text-gray-400">
+            <span className="text-gray-900 font-semibold">{stats.totalSites.toLocaleString()}</span> sites across{' '}
+            <span className="text-gray-900 font-semibold">{stats.companiesCount}</span> companies
+            {stats.sitesWithCoords < stats.totalSites && (
+              <span> · <span className="text-gray-900 font-semibold">{stats.sitesWithCoords}</span> mapped</span>
+            )}
+          </p>
         )}
       </div>
 
-      {/* Footer with Clear All */}
-      <div className="p-6 border-t border-gray-200 bg-gray-50">
-        <button
-          onClick={() => {
-            onCompaniesChange(new Set());
-            onCategoriesChange(new Set());
-            onStatusesChange(new Set());
-            onMSAsChange(new Set());
-            onStatesChange(new Set());
-          }}
-          className="w-full px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          Clear All Filters
-        </button>
+      {/* ── Category toggles ─────────────────────────────────────────────── */}
+      <div className="px-5 pb-3">
+        <div className="flex gap-2">
+          {displayCategories.map(group => {
+            const active = isCategoryActive(group);
+            return (
+              <button
+                key={group.label}
+                onClick={() => toggleCategory(group)}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                  active
+                    ? 'text-white shadow-sm'
+                    : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600'
+                }`}
+                style={active ? {
+                  backgroundColor: group.color,
+                  borderColor: group.color,
+                } : undefined}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: active ? 'rgba(255,255,255,0.7)' : group.color }}
+                />
+                {group.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      <div className="border-t border-gray-100" />
+
+      {/* ── Company search ────────────────────────────────────────────────── */}
+      <div className="px-5 py-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+          <input
+            ref={searchRef}
+            type="text"
+            placeholder={selectedCompanies.size > 0
+              ? 'Add another company...'
+              : `Filter from ${allCompanies.length} companies...`
+            }
+            value={companyQuery}
+            onChange={e => setCompanyQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+            className="w-full pl-10 pr-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 focus:bg-white transition-all placeholder:text-gray-400"
+          />
+        </div>
+
+        {/* Selected company chips */}
+        {selectedCompanies.size > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2.5">
+            {[...selectedCompanies].map(name => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium group"
+              >
+                {name}
+                <button
+                  onClick={() => removeCompany(name)}
+                  className="p-0.5 rounded hover:bg-indigo-100 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Search results dropdown */}
+        {companyQuery && searchFocused && (
+          <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg">
+            {companyResults.length > 0 ? (
+              companyResults.map(name => (
+                <button
+                  key={name}
+                  onMouseDown={() => addCompany(name)}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                >
+                  {name}
+                </button>
+              ))
+            ) : (
+              <p className="px-4 py-3 text-sm text-gray-400">No companies match "{companyQuery}"</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Footer ────────────────────────────────────────────────────────── */}
+      {hasAnyFilter && (
+        <div className="px-5 py-2.5 border-t border-gray-100">
+          <button
+            onClick={() => {
+              onCompaniesChange(new Set());
+              onCategoriesChange(new Set());
+            }}
+            className="w-full text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors py-1"
+          >
+            Reset all filters
+          </button>
+        </div>
+      )}
     </div>
   );
 }

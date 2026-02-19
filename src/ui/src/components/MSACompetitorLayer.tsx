@@ -3,10 +3,18 @@ import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import type { Region } from '../types';
 import { getMSACompetitorSummaries, getCategoryColor, type MSACompetitorSummary, loadCompetitorData } from '../dataLoader/competitorLoader';
+import { getSalesforceMSASummaries, loadSalesforceData } from '../dataLoader/salesforceLoader';
+
+/** Map raw category to display label (Pipeline sites show as Customer). */
+function displayCategory(raw: string): string {
+  return raw === 'Pipeline' ? 'Customer' : raw;
+}
 
 interface MSACompetitorLayerProps {
   regions: Region[];
   visible: boolean;
+  selectedCategories?: Set<string>;
+  selectedCompanies?: Set<string>;
 }
 
 /**
@@ -179,7 +187,7 @@ function MSACompetitorMarker({ region, summary }: { region: Region; summary: MSA
 
   return (
     <Marker position={[region.lat, region.lng]} icon={icon}>
-      <Popup closeButton={true} maxWidth={350} className="msa-competitor-popup">
+      <Popup closeButton={true} maxWidth={350} autoPan={false} className="msa-competitor-popup">
         <div style={{ minWidth: 220 }}>
           <h3 style={{ margin: '0 0 8px 0', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>
             {region.name}
@@ -194,7 +202,8 @@ function MSACompetitorMarker({ region, summary }: { region: Region; summary: MSA
               const logoUrl = COMPANY_LOGOS[company];
               const color = getCompanyColor(company);
               const initials = getCompanyInitials(company);
-              const category = summary.sites.find(s => s.companyName === company)?.category ?? 'Unknown';
+              const rawCategory = summary.sites.find(s => s.companyName === company)?.category ?? 'Unknown';
+              const category = displayCategory(rawCategory);
 
               return (
                 <div
@@ -262,40 +271,111 @@ function MSACompetitorMarker({ region, summary }: { region: Region; summary: MSA
   );
 }
 
-export function MSACompetitorLayer({ regions, visible }: MSACompetitorLayerProps) {
-  // State to trigger re-render when competitor data loads
+/** Check if two names match via case-insensitive substring inclusion. */
+function namesMatch(a: string, b: string): boolean {
+  const aN = a.toLowerCase().trim();
+  const bN = b.toLowerCase().trim();
+  return aN === bN || aN.includes(bN) || bN.includes(aN);
+}
+
+export function MSACompetitorLayer({ regions, visible, selectedCategories, selectedCompanies }: MSACompetitorLayerProps) {
+  // State to trigger re-render when competitor or SF data loads
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [sfLoaded, setSfLoaded] = useState(false);
 
   useEffect(() => {
     // Trigger load if not already loaded
     loadCompetitorData();
+    loadSalesforceData();
 
-    // Listen for data load event
-    const handleLoaded = () => setDataLoaded(true);
-    window.addEventListener('competitor:loaded', handleLoaded);
+    // Listen for data load events
+    const handleCompetitorLoaded = () => setDataLoaded(true);
+    const handleSfLoaded = () => setSfLoaded(true);
+    window.addEventListener('competitor:loaded', handleCompetitorLoaded);
+    window.addEventListener('salesforce:loaded', handleSfLoaded);
 
-    return () => window.removeEventListener('competitor:loaded', handleLoaded);
+    return () => {
+      window.removeEventListener('competitor:loaded', handleCompetitorLoaded);
+      window.removeEventListener('salesforce:loaded', handleSfLoaded);
+    };
   }, []);
 
-  const summaries = useMemo(() => getMSACompetitorSummaries(), [dataLoaded]);
+  // Merge competitor summaries with SF Sales Opportunity customers
+  const summaries = useMemo(() => {
+    const competitorSummaries = getMSACompetitorSummaries();
+    const sfSummaries = getSalesforceMSASummaries();
+
+    // Merge SF customers into competitor summaries
+    // SF provides customers with Sales Opportunities (no physical site yet)
+    // that don't appear in competitor pins
+    const merged = new Map<string, MSACompetitorSummary>(competitorSummaries);
+
+    for (const [sfMsa, sfData] of Object.entries(sfSummaries)) {
+      // Find matching competitor summary by normalized name
+      let matchKey: string | null = null;
+      for (const [existingMsa] of merged) {
+        if (namesMatch(existingMsa, sfMsa)) {
+          matchKey = existingMsa;
+          break;
+        }
+      }
+
+      if (matchKey) {
+        // Merge SF accounts into existing summary
+        const existing = merged.get(matchKey)!;
+        const mergedCompanies = new Set(existing.companies);
+        for (const account of sfData.accounts) {
+          mergedCompanies.add(account);
+        }
+        merged.set(matchKey, {
+          ...existing,
+          companies: [...mergedCompanies],
+        });
+      } else {
+        // New MSA from SF only (no competitor data)
+        merged.set(sfMsa, {
+          msa: sfMsa,
+          categories: ['Pipeline'],
+          companies: sfData.accounts,
+          siteCount: sfData.siteCount,
+          sites: [],
+        });
+      }
+    }
+
+    return merged;
+  }, [dataLoaded, sfLoaded]);
+
+  // Apply category/company filters to summaries
+  const hasFilters = (selectedCategories?.size ?? 0) > 0 || (selectedCompanies?.size ?? 0) > 0;
+
+  const filteredSummaries = useMemo(() => {
+    if (!hasFilters) return summaries;
+
+    const filtered = new Map<string, MSACompetitorSummary>();
+    for (const [msaName, summary] of summaries) {
+      let sites = summary.sites;
+      if (selectedCategories && selectedCategories.size > 0) {
+        sites = sites.filter(s => selectedCategories.has(s.category));
+      }
+      if (selectedCompanies && selectedCompanies.size > 0) {
+        sites = sites.filter(s => selectedCompanies.has(s.companyName));
+      }
+      if (sites.length === 0) continue;
+      const companies = [...new Set(sites.map(s => s.companyName))];
+      const categories = [...new Set(sites.map(s => s.category))];
+      filtered.set(msaName, { ...summary, sites, companies, categories, siteCount: sites.length });
+    }
+    return filtered;
+  }, [summaries, selectedCategories, selectedCompanies, hasFilters]);
 
   // Match MSA regions to competitor summaries by name
   const matchedMSAs = useMemo(() => {
     const matches: { region: Region; summary: MSACompetitorSummary }[] = [];
 
     for (const region of regions) {
-      // Try to match by MSA name (normalize for comparison)
-      const regionNameNorm = region.name.toLowerCase().trim();
-
-      for (const [msaName, summary] of summaries) {
-        const msaNameNorm = msaName.toLowerCase().trim();
-
-        // Check for partial match (MSA names in competitor data might be abbreviated)
-        if (
-          regionNameNorm.includes(msaNameNorm) ||
-          msaNameNorm.includes(regionNameNorm) ||
-          regionNameNorm === msaNameNorm
-        ) {
+      for (const [msaName, summary] of filteredSummaries) {
+        if (namesMatch(region.name, msaName)) {
           matches.push({ region, summary });
           break;
         }
@@ -303,7 +383,7 @@ export function MSACompetitorLayer({ regions, visible }: MSACompetitorLayerProps
     }
 
     return matches;
-  }, [regions, summaries]);
+  }, [regions, filteredSummaries]);
 
   if (!visible) return null;
 

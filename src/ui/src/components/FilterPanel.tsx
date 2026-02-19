@@ -1,4 +1,4 @@
-import { Download, Zap, ChevronDown } from 'lucide-react';
+import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Segment, Region, WhatIfScenario, GeoLevel } from '../types';
 import { exportToCSV, exportToGeoJSON, exportToKML, ExportOptions } from '../utils/exportUtils';
 import { useState } from 'react';
@@ -32,6 +32,8 @@ interface FilterPanelProps {
   selectedTract?: Region | null;
   multiSelectedCounties?: Region[];
   multiSelectedTracts?: Region[];
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export function FilterPanel({
@@ -62,6 +64,8 @@ export function FilterPanel({
   selectedTract = null,
   multiSelectedCounties = [],
   multiSelectedTracts = [],
+  collapsed = false,
+  onToggleCollapse,
 }: FilterPanelProps) {
   const [msaDropdownOpen, setMsaDropdownOpen] = useState(false);
   const [countyDropdownOpen, setCountyDropdownOpen] = useState(false);
@@ -145,9 +149,40 @@ export function FilterPanel({
   const tractBounds = rankBoundsFor(allTracts);
   const exportLevelLabel = hasSelectionForLevel(exportLevel) ? 'selected' : 'on view';
 
+  if (collapsed) {
+    return (
+      <div className="w-12 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col items-center py-4 transition-all duration-200">
+        <button
+          onClick={onToggleCollapse}
+          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+          title="Expand filters"
+        >
+          <PanelLeftOpen className="w-5 h-5" />
+        </button>
+        <span
+          className="text-xs text-gray-500 mt-4 tracking-wider"
+          style={{ writingMode: 'vertical-lr' }}
+        >
+          Filters
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto flex-shrink-0">
-      <h2 className="font-semibold text-gray-900 mb-6">Filters & Controls</h2>
+    <div className="w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto flex-shrink-0 transition-all duration-200">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="font-semibold text-gray-900">Filters & Controls</h2>
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+            title="Collapse filters"
+          >
+            <PanelLeftClose className="w-5 h-5" />
+          </button>
+        )}
+      </div>
 
       {/* Active Scenario Indicator */}
       {activeScenario && (

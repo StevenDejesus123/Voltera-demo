@@ -5,7 +5,6 @@ import 'leaflet/dist/leaflet.css';
 
 import { Region, GeoLevel, MapViewState, CompetitorSite } from '../types';
 import { getPolygonsForLevel, getPolygonLoadingState } from '../dataLoader/geoPolygons';
-import { Eye, GitCompare } from 'lucide-react';
 import { LassoSelector } from './LassoSelector';
 import { LassoToggleButton } from './LassoToggleButton';
 import { CompetitorMapLayer } from './CompetitorMapLayer';
@@ -81,7 +80,7 @@ interface GeoMapViewProps {
   selectedRegion: Region | null;
   selectedRegions?: Region[];
   onSelectRegion: (region: Region, ctrlKey?: boolean) => void;
-  onAddToCompare: (region: Region) => void;
+  onAddToCompare?: (region: Region) => void;
   multiSelectEnabled?: boolean;
   onLassoSelect?: (regions: Region[]) => void;
   savedMapView?: MapViewState | null;
@@ -91,6 +90,8 @@ interface GeoMapViewProps {
   // Market Intelligence layer
   competitorSites?: CompetitorSite[];
   showCompetitorLayer?: boolean;
+  competitorCategories?: Set<string>;
+  competitorCompanies?: Set<string>;
 }
 
 /**
@@ -262,6 +263,8 @@ export function GeoMapView({
   onToggleLasso,
   competitorSites = [],
   showCompetitorLayer = false,
+  competitorCategories,
+  competitorCompanies,
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
   lassoEnabledRef.current = lassoEnabled;
@@ -331,13 +334,11 @@ export function GeoMapView({
     if (!region) return DEFAULT_STYLE;
 
     const fillColor = getScoreColor(region.score);
-    const isMultiSelected = selectedRegionIdsRef.current.has(region.id);
-    const isSelected = selectedRegionRef.current?.id === region.id;
 
-    if (isMultiSelected) {
+    if (selectedRegionIdsRef.current.has(region.id)) {
       return { fillColor, fillOpacity: 0.65, color: '#f80015', weight: 3 };
     }
-    if (isSelected) {
+    if (selectedRegionRef.current?.id === region.id) {
       return { fillColor, fillOpacity: 0.7, color: '#ff00b3', weight: 3 };
     }
     if (region.inGeofence) {
@@ -451,39 +452,14 @@ export function GeoMapView({
 
         {/* MSA-level competitor markers with company logos */}
         {geoLevel === 'MSA' && (
-          <MSACompetitorLayer regions={regions} visible={showCompetitorLayer} />
+          <MSACompetitorLayer
+            regions={regions}
+            visible={showCompetitorLayer}
+            selectedCategories={competitorCategories}
+            selectedCompanies={competitorCompanies}
+          />
         )}
       </MapContainer>
-
-      {/* Selected Region Panel */}
-      {selectedRegion && (
-        <div className="absolute bottom-4 left-4 bg-white shadow-lg rounded-lg p-3 border border-indigo-200 max-w-xs" style={{ zIndex: 1000 }}>
-          <h4 className="font-semibold text-indigo-900 text-sm mb-1">
-            Selected Region
-          </h4>
-          <p className="text-xs text-gray-700 mb-3">
-            {selectedRegion.name}
-          </p>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => onSelectRegion(selectedRegion)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-medium"
-            >
-              <Eye className="w-3 h-3" />
-              Details
-            </button>
-
-            <button
-              onClick={() => onAddToCompare(selectedRegion)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-medium"
-            >
-              <GitCompare className="w-3 h-3" />
-              Compare
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Info Banner */}
       <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 z-[1000] max-w-[90%] pointer-events-none">

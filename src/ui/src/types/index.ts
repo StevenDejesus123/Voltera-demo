@@ -85,7 +85,7 @@ export interface WhatIfScenario {
 }
 
 // Market Intelligence / Competitor Tracker types
-export type CompetitorCategory = 'Voltera' | 'Customer' | 'Competitor' | 'Interest' | 'Unknown';
+export type CompetitorCategory = 'Voltera' | 'Customer' | 'Competitor' | 'Interest' | 'Pipeline' | 'Unknown';
 
 export interface CompetitorSite {
   id: string;
@@ -134,5 +134,27 @@ export interface CompetitorTrackerData {
     totalSites: number;
     sitesWithCoords: number;
     companiesCount: number;
+    pipelineSites?: number;
   };
+}
+
+// Salesforce MSA Summary types
+export interface SalesforceMSASummary {
+  msa: string;
+  accounts: string[];
+  accountCount: number;
+  opportunityCount: number;
+  siteCount: number;
+}
+
+export interface SalesforceData {
+  msaSummaries: Record<string, SalesforceMSASummary>;
+  stats: {
+    salesOpportunities: number;
+    reOpportunities: number;
+    pipelineSites: number;
+    msaCount: number;
+  };
+  lastUpdated: string;
+  error?: string;
 }

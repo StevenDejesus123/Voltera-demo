@@ -1,22 +1,25 @@
-import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { Region, GeoLevel, RegionDetails } from '../types';
+import { getSalesforceMSASummary, loadSalesforceData } from '../dataLoader/salesforceLoader';
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
-type AggType = 'sum' | 'avg';
+type AggType = 'sum' | 'avg' | 'max';
 
 const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = {
   // sums — absolute counts / totals
   population:            'sum',
   rideshareTrips:        'sum',
   evStationCount:        'sum',
-  airportCount:          'sum',
-  avTestingCount:        'sum',
-  avTestingVehicles:     'sum',
   federalFundingAmount:  'sum',
   stateFundingCount:     'sum',
   evStationCountMSA:     'sum',
   areaSqrtMiles:         'sum',
+  // max — non-additive counts (shared infrastructure across selected regions)
+  airportCount:          'max',
+  avTestingCount:        'max',
+  avTestingVehicles:     'max',
   // averages — rates, prices, densities
   populationDensity:     'avg',
   medianIncome:          'avg',
@@ -26,7 +29,6 @@ const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = {
   rideshareDensity:      'avg',
   gasPrice:              'avg',
   electricityPrice:      'avg',
-  landValue:             'avg',
   snowdays:              'avg',
   snowdaysMSA:           'avg',
   temperature:           'avg',
@@ -47,7 +49,9 @@ function aggregateDetails(detailsList: (RegionDetails | undefined)[]): RegionDet
     if (values.length === 0) continue;
     (result as any)[key] = aggType === 'sum'
       ? values.reduce((a, b) => a + b, 0)
-      : values.reduce((a, b) => a + b, 0) / values.length;
+      : aggType === 'max'
+        ? Math.max(...values)
+        : values.reduce((a, b) => a + b, 0) / values.length;
   }
   return result as RegionDetails;
 }
@@ -71,7 +75,6 @@ const FIELD_VISIBILITY: Record<string, Record<GeoLevel, boolean>> = {
   stateFundingCount:    { MSA: true,  County: true,  Tract: false },
   gasPrice:             { MSA: true,  County: true,  Tract: true  },
   electricityPrice:     { MSA: true,  County: true,  Tract: true  },
-  landValue:            { MSA: true,  County: true,  Tract: true  },
   snowdays:             { MSA: true,  County: true,  Tract: true  },
   temperature:          { MSA: true,  County: true,  Tract: true  },
   precipitation:        { MSA: true,  County: false, Tract: false },
@@ -80,13 +83,14 @@ const FIELD_VISIBILITY: Record<string, Record<GeoLevel, boolean>> = {
   earthquakeRisk:       { MSA: false, County: false, Tract: true  },
 };
 
-const shouldShow = (field: string, geoLevel: GeoLevel | string): boolean => {
-  const normalizedLevel = geoLevel.toUpperCase() === 'MSA' ? 'MSA'
-    : geoLevel.toUpperCase() === 'COUNTY' ? 'County'
-      : geoLevel.toUpperCase() === 'TRACT' ? 'Tract'
-        : geoLevel as GeoLevel;
-  return FIELD_VISIBILITY[field]?.[normalizedLevel] ?? false;
-};
+function normalizeGeoLevel(geoLevel: GeoLevel | string): GeoLevel {
+  const LEVEL_MAP: Record<string, GeoLevel> = { MSA: 'MSA', COUNTY: 'County', TRACT: 'Tract' };
+  return LEVEL_MAP[geoLevel.toUpperCase()] ?? geoLevel as GeoLevel;
+}
+
+function shouldShow(field: string, geoLevel: GeoLevel | string): boolean {
+  return FIELD_VISIBILITY[field]?.[normalizeGeoLevel(geoLevel)] ?? false;
+}
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -97,77 +101,103 @@ interface ExplainabilityPanelProps {
   regions?: Region[];
   /** Details for each entry in `regions` (parallel array) */
   allDetails?: (RegionDetails | undefined)[];
-  onClose: () => void;
+  onClose?: () => void;
   onAddToCompare?: () => void;
   isLoadingDetails?: boolean;
   detailsProgress?: number;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
-const SkeletonRow = () => (
-  <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0 animate-pulse">
-    <div className="h-3 bg-gray-200 rounded w-32" />
-    <div className="h-3 bg-gray-200 rounded w-16" />
-  </div>
-);
+function SkeletonRow() {
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0 animate-pulse">
+      <div className="h-3 bg-gray-200 rounded w-32" />
+      <div className="h-3 bg-gray-200 rounded w-16" />
+    </div>
+  );
+}
 
-const SkeletonSection = ({ rows = 3, label, icon: Icon }: { rows?: number; label: string; icon: React.ElementType }) => (
-  <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-    <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
-      <Icon className="w-4 h-4 text-gray-300" />
-      <span className="text-sm font-semibold text-gray-400">{label}</span>
+function SkeletonSection({ rows = 3, label, icon: Icon }: { rows?: number; label: string; icon: React.ElementType }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+        <Icon className="w-4 h-4 text-gray-300" />
+        <span className="text-sm font-semibold text-gray-400">{label}</span>
+      </div>
+      <div className="px-4 py-2">
+        {Array.from({ length: rows }).map((_, i) => <SkeletonRow key={i} />)}
+      </div>
     </div>
-    <div className="px-4 py-2">
-      {Array.from({ length: rows }).map((_, i) => <SkeletonRow key={i} />)}
+  );
+}
+
+/** Skeleton placeholder for the full detail sections panel. */
+function DetailSectionsSkeleton() {
+  return (
+    <div className="space-y-4">
+      <SkeletonSection label="Infrastructure" icon={Zap} rows={3} />
+      <SkeletonSection label="Demographics" icon={Users} rows={3} />
+      <SkeletonSection label="Mobility & Rideshare" icon={Activity} rows={2} />
+      <SkeletonSection label="Costs" icon={DollarSign} rows={3} />
+      <SkeletonSection label="Climate & Risk" icon={Thermometer} rows={4} />
     </div>
-  </div>
-);
+  );
+}
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
-const formatNumber = (val: number | undefined | null, prefix = '', suffix = ''): string => {
+function formatNumber(val: number | undefined | null, prefix = '', suffix = ''): string {
   if (val === undefined || val === null) return 'N/A';
   if (val >= 1000000) return `${prefix}${(val / 1000000).toFixed(1)}M${suffix}`;
   if (val >= 1000) return `${prefix}${(val / 1000).toFixed(1)}K${suffix}`;
   if (val < 1 && val > 0) return `${prefix}${val.toFixed(3)}${suffix}`;
   return `${prefix}${val.toLocaleString()}${suffix}`;
-};
+}
 
-const formatDecimal = (val: number | undefined | null, decimals: number, prefix = '', suffix = ''): string => {
+function formatDecimal(val: number | undefined | null, decimals: number, prefix = '', suffix = ''): string {
   if (val === undefined || val === null || typeof val !== 'number') return 'N/A';
   return `${prefix}${val.toFixed(decimals)}${suffix}`;
-};
+}
 
 // ── DetailItem ────────────────────────────────────────────────────────────────
 
-const AggBadge = ({ type }: { type: AggType }) => (
-  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-    type === 'sum' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
-  }`}>
-    {type}
-  </span>
-);
+function AggBadge({ type }: { type: AggType }) {
+  const cls = type === 'sum'
+    ? 'bg-blue-100 text-blue-700'
+    : type === 'max'
+      ? 'bg-green-100 text-green-700'
+      : 'bg-amber-100 text-amber-700';
+  return (
+    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${cls}`}>
+      {type}
+    </span>
+  );
+}
 
-const DetailItem = ({
+function DetailItem({
   label, value, icon: Icon, aggregation,
 }: {
   label: string;
   value: string;
   icon?: React.ElementType;
   aggregation?: AggType;
-}) => (
-  <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-    <div className="flex items-center gap-2 text-gray-600">
-      {Icon && <Icon className="w-4 h-4" />}
-      <span className="text-sm">{label}</span>
+}) {
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+      <div className="flex items-center gap-2 text-gray-600">
+        {Icon && <Icon className="w-4 h-4" />}
+        <span className="text-sm">{label}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {aggregation && <AggBadge type={aggregation} />}
+        <span className="text-sm font-medium text-gray-900">{value}</span>
+      </div>
     </div>
-    <div className="flex items-center gap-1.5">
-      {aggregation && <AggBadge type={aggregation} />}
-      <span className="text-sm font-medium text-gray-900">{value}</span>
-    </div>
-  </div>
-);
+  );
+}
 
 // ── Detail sections (shared between single and multi) ─────────────────────────
 
@@ -283,7 +313,7 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
         )}
 
       {/* Costs */}
-      {(details.gasPrice !== undefined || details.electricityPrice !== undefined || details.landValue !== undefined) && (
+      {(details.gasPrice !== undefined || details.electricityPrice !== undefined) && (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
             <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -297,9 +327,6 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
             )}
             {shouldShow('electricityPrice', geoLevel) && details.electricityPrice !== undefined && details.electricityPrice !== null && (
               <DetailItem label="Electricity Price" value={formatDecimal(details.electricityPrice, 1, '', '¢/kWh')} icon={Zap} aggregation={agg('electricityPrice')} />
-            )}
-            {shouldShow('landValue', geoLevel) && details.landValue !== undefined && details.landValue !== null && (
-              <DetailItem label="Land Value (¼ acre)" value={formatNumber(details.landValue, '$')} icon={DollarSign} aggregation={agg('landValue')} />
             )}
           </div>
         </div>
@@ -338,6 +365,89 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
   );
 }
 
+// ── Salesforce Customer Count widget ──────────────────────────────────────────
+
+function SalesforceCustomerCount({ region }: { region: Region }) {
+  const [sfLoaded, setSfLoaded] = useState(false);
+
+  useEffect(() => {
+    loadSalesforceData();
+    const handler = () => setSfLoaded(true);
+    window.addEventListener('salesforce:loaded', handler);
+    return () => window.removeEventListener('salesforce:loaded', handler);
+  }, []);
+
+  // Look up SF summary for this region's MSA
+  const msaName = region.msaName || region.name;
+  const sfSummary = sfLoaded ? getSalesforceMSASummary(msaName) : null;
+
+  return (
+    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+      <div className="flex items-center gap-3">
+        <Users className="w-5 h-5 text-gray-600" />
+        <div>
+          <p className="text-sm font-medium text-gray-900">
+            {region.customerCount.toLocaleString()} Customers
+          </p>
+          <p className="text-xs text-gray-500">Active in this region</p>
+        </div>
+      </div>
+      {sfSummary && sfSummary.accountCount > 0 && (
+        <div className="ml-8 pt-1 border-t border-gray-200">
+          <p className="text-xs font-medium text-teal-700">
+            {sfSummary.accountCount} from Salesforce Pipeline
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {sfSummary.accounts.slice(0, 6).map(name => (
+              <span
+                key={name}
+                className="inline-block px-1.5 py-0.5 text-[10px] bg-teal-50 text-teal-700 rounded border border-teal-200"
+              >
+                {name}
+              </span>
+            ))}
+            {sfSummary.accounts.length > 6 && (
+              <span className="inline-block px-1.5 py-0.5 text-[10px] bg-gray-100 text-gray-500 rounded">
+                +{sfSummary.accounts.length - 6} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Header action buttons (shared across collapsed/multi/single modes) ────────
+
+function PanelHeaderActions({
+  onToggleCollapse,
+  onClose,
+  variant = 'light',
+}: {
+  onToggleCollapse?: () => void;
+  onClose?: () => void;
+  variant?: 'light' | 'dark';
+}) {
+  const base = variant === 'dark'
+    ? 'text-white hover:bg-indigo-700'
+    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100';
+  return (
+    <div className="flex items-center gap-1">
+      {onToggleCollapse && (
+        <button onClick={onToggleCollapse} className={`p-1 rounded-lg transition-colors ${base}`} title="Collapse">
+          <PanelRightClose className="w-5 h-5" />
+        </button>
+      )}
+      {onClose && (
+        <button onClick={onClose} className={`p-1 rounded-lg transition-colors ${base}`}>
+          <X className="w-5 h-5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ExplainabilityPanel({
@@ -348,10 +458,54 @@ export function ExplainabilityPanel({
   onAddToCompare,
   isLoadingDetails = false,
   detailsProgress = -1,
+  collapsed = false,
+  onToggleCollapse,
 }: ExplainabilityPanelProps) {
 
-  // ── Multi-region mode ──────────────────────────────────────────────────────
+  // ── Collapsed state ────────────────────────────────────────────────────────
+  if (collapsed) {
+    return (
+      <div className="w-12 bg-white border-l border-gray-200 flex-shrink-0 flex flex-col items-center py-4 transition-all duration-200">
+        <button
+          onClick={onToggleCollapse}
+          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+          title="Expand region analysis"
+        >
+          <PanelRightOpen className="w-5 h-5" />
+        </button>
+        <span
+          className="text-xs text-gray-500 mt-4 tracking-wider"
+          style={{ writingMode: 'vertical-lr' }}
+        >
+          Region Analysis
+        </span>
+      </div>
+    );
+  }
+
+  // ── Empty state (no region selected) ───────────────────────────────────────
   const isMulti = regions !== undefined && regions.length >= 2;
+  const hasContent = isMulti || region;
+
+  if (!hasContent) {
+    return (
+      <div className="w-96 bg-white border-l border-gray-200 flex-shrink-0 flex flex-col transition-all duration-200">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
+          <h2 className="font-semibold text-gray-900">Region Analysis</h2>
+          <PanelHeaderActions onToggleCollapse={onToggleCollapse} variant="light" />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <MapPin className="w-12 h-12 text-gray-300 mb-4" />
+          <p className="text-sm font-medium text-gray-500">No region selected</p>
+          <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+            Select an MSA, County, or Tract from the map panels to view detailed region analysis
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Multi-region mode ──────────────────────────────────────────────────────
 
   if (isMulti) {
     const geoLevel = regions[0].geoLevel;
@@ -374,9 +528,7 @@ export function ExplainabilityPanel({
               <Layers className="w-5 h-5" />
               <h2 className="font-semibold">Multi-Region Analysis</h2>
             </div>
-            <button onClick={onClose} className="text-white hover:bg-indigo-700 p-1 rounded transition-colors">
-              <X className="w-5 h-5" />
-            </button>
+            <PanelHeaderActions onToggleCollapse={onToggleCollapse} onClose={onClose} variant="dark" />
           </div>
           <p className="text-sm text-indigo-100">
             {regions.length} {geoLevel} regions selected
@@ -402,9 +554,10 @@ export function ExplainabilityPanel({
           </div>
 
           {/* Legend */}
-          <div className="flex items-center gap-3 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400" /> <span className="text-blue-700 font-medium">sum</span> = total across all regions</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400" /> <span className="text-amber-700 font-medium">avg</span> = average across all regions</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400" /> <span className="text-blue-700 font-medium">sum</span> = total</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400" /> <span className="text-amber-700 font-medium">avg</span> = average</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded bg-green-200 border border-green-400" /> <span className="text-green-700 font-medium">max</span> = highest value</span>
           </div>
 
           {/* Key Metrics */}
@@ -419,19 +572,21 @@ export function ExplainabilityPanel({
             </div>
           </div>
 
-          {/* Customer Count */}
-          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <Users className="w-5 h-5 text-gray-600" />
-            <div className="flex-1">
-              <div className="flex items-center gap-1.5">
-                <AggBadge type="sum" />
-                <p className="text-sm font-medium text-gray-900">
-                  {totalCustomers.toLocaleString()} Customers
-                </p>
+          {/* Customer Count — SF data is per-MSA only */}
+          {geoLevel.toUpperCase() === 'MSA' && (
+            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <Users className="w-5 h-5 text-gray-600" />
+              <div className="flex-1">
+                <div className="flex items-center gap-1.5">
+                  <AggBadge type="sum" />
+                  <p className="text-sm font-medium text-gray-900">
+                    {totalCustomers.toLocaleString()} Customers
+                  </p>
+                </div>
+                <p className="text-xs text-gray-500">Total across selected regions</p>
               </div>
-              <p className="text-xs text-gray-500">Total across selected regions</p>
             </div>
-          </div>
+          )}
 
           {/* Geofence Status */}
           <div className={`flex items-center gap-3 p-4 rounded-lg border ${
@@ -462,13 +617,7 @@ export function ExplainabilityPanel({
 
           {/* Aggregated Detail Sections */}
           {isLoadingDetails ? (
-            <div className="space-y-4">
-              <SkeletonSection label="Infrastructure" icon={Zap} rows={3} />
-              <SkeletonSection label="Demographics" icon={Users} rows={3} />
-              <SkeletonSection label="Mobility & Rideshare" icon={Activity} rows={2} />
-              <SkeletonSection label="Costs" icon={DollarSign} rows={3} />
-              <SkeletonSection label="Climate & Risk" icon={Thermometer} rows={4} />
-            </div>
+            <DetailSectionsSkeleton />
           ) : aggregated ? (
             <DetailSections
               details={aggregated}
@@ -483,7 +632,8 @@ export function ExplainabilityPanel({
   }
 
   // ── Single-region mode (existing behavior) ─────────────────────────────────
-  if (!region) return null;
+  // The `!hasContent` guard above guarantees `region` is defined here.
+  const singleRegion = region!;
 
   const getImpactColor = (impact: string) => {
     switch (impact) {
@@ -507,9 +657,7 @@ export function ExplainabilityPanel({
       <div className="sticky top-0 bg-indigo-600 text-white p-6 z-10">
         <div className="flex items-start justify-between mb-2">
           <h2 className="font-semibold">Region Analysis</h2>
-          <button onClick={onClose} className="text-white hover:bg-indigo-700 p-1 rounded transition-colors">
-            <X className="w-5 h-5" />
-          </button>
+          <PanelHeaderActions onToggleCollapse={onToggleCollapse} onClose={onClose} variant="dark" />
         </div>
         <p className="text-sm text-indigo-100">Understanding why this region ranks high</p>
       </div>
@@ -521,8 +669,8 @@ export function ExplainabilityPanel({
           <div className="flex items-start gap-3">
             <MapPin className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="font-semibold text-gray-900">{region.name}</h3>
-              <p className="text-sm text-gray-500 mt-1">{region.geoLevel} Level</p>
+              <h3 className="font-semibold text-gray-900">{singleRegion.name}</h3>
+              <p className="text-sm text-gray-500 mt-1">{singleRegion.geoLevel} Level</p>
             </div>
           </div>
         </div>
@@ -542,31 +690,25 @@ export function ExplainabilityPanel({
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg p-4 border border-indigo-200">
             <p className="text-xs font-medium text-indigo-700 mb-1">Rank</p>
-            <p className="text-2xl font-bold text-indigo-900">#{region.rank}</p>
+            <p className="text-2xl font-bold text-indigo-900">#{singleRegion.rank}</p>
           </div>
           <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
             <p className="text-xs font-medium text-green-700 mb-1">Score</p>
-            <p className="text-2xl font-bold text-green-900">{(region.score * 100).toFixed(0)}%</p>
+            <p className="text-2xl font-bold text-green-900">{(singleRegion.score * 100).toFixed(0)}%</p>
           </div>
         </div>
 
-        {/* Customer Count */}
-        <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <Users className="w-5 h-5 text-gray-600" />
-          <div>
-            <p className="text-sm font-medium text-gray-900">
-              {region.customerCount.toLocaleString()} Customers
-            </p>
-            <p className="text-xs text-gray-500">Active in this region</p>
-          </div>
-        </div>
+        {/* Customer Count — SF data is per-MSA only */}
+        {singleRegion.geoLevel?.toUpperCase() === 'MSA' && (
+          <SalesforceCustomerCount region={singleRegion} />
+        )}
 
         {/* Geofence Status */}
-        <div className={`flex items-center gap-3 p-4 rounded-lg border ${region.inGeofence
+        <div className={`flex items-center gap-3 p-4 rounded-lg border ${singleRegion.inGeofence
           ? 'bg-purple-50 border-purple-200'
           : 'bg-gray-50 border-gray-200'
         }`}>
-          {region.inGeofence ? (
+          {singleRegion.inGeofence ? (
             <>
               <CheckCircle2 className="w-5 h-5 text-purple-600" />
               <div>
@@ -587,19 +729,13 @@ export function ExplainabilityPanel({
 
         {/* Detail Sections */}
         {isLoadingDetails ? (
-          <div className="space-y-4">
-            <SkeletonSection label="Infrastructure" icon={Zap} rows={3} />
-            <SkeletonSection label="Demographics" icon={Users} rows={3} />
-            <SkeletonSection label="Mobility & Rideshare" icon={Activity} rows={2} />
-            <SkeletonSection label="Costs" icon={DollarSign} rows={3} />
-            <SkeletonSection label="Climate & Risk" icon={Thermometer} rows={4} />
-          </div>
-        ) : region.details && (
+          <DetailSectionsSkeleton />
+        ) : singleRegion.details && (
           <DetailSections
-            details={region.details}
-            geoLevel={region.geoLevel}
+            details={singleRegion.details}
+            geoLevel={singleRegion.geoLevel}
             showAggBadges={false}
-            isAirportTract={region.geoLevel.toUpperCase() === 'TRACT'}
+            isAirportTract={singleRegion.geoLevel.toUpperCase() === 'TRACT'}
           />
         )}
 
@@ -631,14 +767,14 @@ export function ExplainabilityPanel({
               ))}
             </div>
           </div>
-        ) : region.factors && region.factors.length > 0 && (
+        ) : singleRegion.factors && singleRegion.factors.length > 0 && (
           <div>
             <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-indigo-600" />
               Top Contributing Factors
             </h3>
             <div className="space-y-3">
-              {region.factors.map((factor, index) => (
+              {singleRegion.factors.map((factor, index) => (
                 <div key={index} className={`p-4 rounded-lg border ${getImpactColor(factor.impact)}`}>
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -660,7 +796,7 @@ export function ExplainabilityPanel({
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <h4 className="text-sm font-semibold text-blue-900 mb-2">Why This Matters</h4>
           <p className="text-sm text-blue-800 leading-relaxed">
-            This region scores in the top {Math.ceil((region.rank / 10) * 10)}% based on a
+            This region scores in the top {Math.ceil((singleRegion.rank / 10) * 10)}% based on a
             combination of customer demand signals, infrastructure readiness, and risk factors.
             The factors above represent the strongest positive indicators for this location.
           </p>
