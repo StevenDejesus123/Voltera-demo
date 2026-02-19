@@ -1,5 +1,4 @@
-# Build stage
-FROM node:20-slim AS builder
+FROM node:20-slim
 
 WORKDIR /app
 
@@ -9,15 +8,6 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# Production stage
-FROM node:20-slim
-
-WORKDIR /app
-
-RUN npm install -g serve
-
-COPY --from=builder /app/build ./build
-
 EXPOSE 3000
 
-CMD serve -s build -l ${PORT:-3000}
+CMD ["sh", "-c", "node_modules/.bin/serve -s build -l ${PORT:-3000}"]
