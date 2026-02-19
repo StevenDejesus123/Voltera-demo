@@ -1,16 +1,16 @@
 # Build stage
-FROM node:18-slim AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
 COPY package.json ./
-RUN npm install -g npm@latest && npm install
+RUN npm install
 
 COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:18-slim
+FROM node:20-slim
 
 WORKDIR /app
 
