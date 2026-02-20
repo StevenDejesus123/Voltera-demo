@@ -61,13 +61,38 @@ export function getCompetitorCompanies(): string[] {
   return cache?.filters?.companies ?? [];
 }
 
-/** Get unique segments from the data. */
+/** Normalize segment name to handle variants (dash vs space, spelling differences) */
+function normalizeSegmentName(segment: string): string {
+  if (!segment) return segment;
+
+  // Normalize to lowercase and trim
+  const normalized = segment.toLowerCase().trim();
+
+  // Map known variants to canonical names
+  const canonicalMap: Record<string, string> = {
+    'heavy duty people': 'Heavy Duty-People',
+    'heavy duty-people': 'Heavy Duty-People',
+    'heavy-duty people': 'Heavy Duty-People',
+    'heavy-duty-people': 'Heavy Duty-People',
+    'heavy duty goods': 'Heavy Duty-Goods',
+    'heavy duty-goods': 'Heavy Duty-Goods',
+    'heavy-duty goods': 'Heavy Duty-Goods',
+    'heavy-duty-goods': 'Heavy Duty-Goods',
+    'last mile': 'Last Mile',
+    'last-mile': 'Last Mile',
+    'drayage': 'Drayage',
+  };
+
+  return canonicalMap[normalized] || segment;
+}
+
+/** Get unique segments from the data (normalized). */
 export function getCompetitorSegments(): string[] {
   if (!cache) return [];
   const segments = new Set<string>();
   for (const site of cache.sites) {
-    if (site.volteraSegment) segments.add(site.volteraSegment);
-    if (site.customerSegment) segments.add(site.customerSegment);
+    if (site.volteraSegment) segments.add(normalizeSegmentName(site.volteraSegment));
+    if (site.customerSegment) segments.add(normalizeSegmentName(site.customerSegment));
   }
   return [...segments].sort();
 }
@@ -108,9 +133,10 @@ export function filterCompetitorSites(
 ): CompetitorSite[] {
   return sites.filter(site => {
     // For segment filtering, check both volteraSegment and customerSegment
+    // Apply normalization to handle spelling variants
     const segmentMatch = !filters.segments || filters.segments.size === 0 ||
-      filters.segments.has(site.volteraSegment) ||
-      filters.segments.has(site.customerSegment);
+      (site.volteraSegment && filters.segments.has(normalizeSegmentName(site.volteraSegment))) ||
+      (site.customerSegment && filters.segments.has(normalizeSegmentName(site.customerSegment)));
 
     return matchesFilter(filters.companies, site.companyName)
       && matchesFilter(filters.categories, site.category)
