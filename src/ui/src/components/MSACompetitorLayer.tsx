@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import type { Region } from '../types';
-import { getMSACompetitorSummaries, getCategoryColor, type MSACompetitorSummary, loadCompetitorData } from '../dataLoader/competitorLoader';
+import { getMSACompetitorSummaries, getCategoryColor, normalizeSegmentName, type MSACompetitorSummary, loadCompetitorData } from '../dataLoader/competitorLoader';
 import { getSalesforceMSASummaries, loadSalesforceData } from '../dataLoader/salesforceLoader';
 
 interface MSACompetitorLayerProps {
@@ -10,6 +10,7 @@ interface MSACompetitorLayerProps {
   visible: boolean;
   selectedCategories?: Set<string>;
   selectedCompanies?: Set<string>;
+  selectedSegments?: Set<string>;
 }
 
 /**
@@ -272,7 +273,7 @@ function namesMatch(a: string, b: string): boolean {
   return aN === bN || aN.includes(bN) || bN.includes(aN);
 }
 
-export function MSACompetitorLayer({ regions, visible, selectedCategories, selectedCompanies }: MSACompetitorLayerProps) {
+export function MSACompetitorLayer({ regions, visible, selectedCategories, selectedCompanies, selectedSegments }: MSACompetitorLayerProps) {
   // State to trigger re-render when competitor or SF data loads
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sfLoaded, setSfLoaded] = useState(false);
@@ -340,28 +341,46 @@ export function MSACompetitorLayer({ regions, visible, selectedCategories, selec
     return merged;
   }, [dataLoaded, sfLoaded]);
 
-  // Apply category/company filters to summaries
-  const hasFilters = (selectedCategories?.size ?? 0) > 0 || (selectedCompanies?.size ?? 0) > 0;
+  // Check if any filters are active
+  const hasFilters = (selectedCategories?.size ?? 0) > 0 || (selectedCompanies?.size ?? 0) > 0 || (selectedSegments?.size ?? 0) > 0;
 
+  // Apply category/company/segment filters to summaries
   const filteredSummaries = useMemo(() => {
     if (!hasFilters) return summaries;
 
     const filtered = new Map<string, MSACompetitorSummary>();
     for (const [msaName, summary] of summaries) {
       let sites = summary.sites;
+
+      // Apply category filter
       if (selectedCategories && selectedCategories.size > 0) {
         sites = sites.filter(s => selectedCategories.has(s.category));
       }
+
+      // Apply company filter
       if (selectedCompanies && selectedCompanies.size > 0) {
         sites = sites.filter(s => selectedCompanies.has(s.companyName));
       }
+
+      // Apply segment filter (check both Voltera and customer segments)
+      if (selectedSegments && selectedSegments.size > 0) {
+        sites = sites.filter(s => {
+          const volteraMatch = s.volteraSegment && selectedSegments.has(normalizeSegmentName(s.volteraSegment));
+          const customerMatch = s.customerSegment && selectedSegments.has(normalizeSegmentName(s.customerSegment));
+          return volteraMatch || customerMatch;
+        });
+      }
+
+      // Skip if no sites remain after filtering
       if (sites.length === 0) continue;
+
+      // Update derived values based on filtered sites
       const companies = [...new Set(sites.map(s => s.companyName))];
       const categories = [...new Set(sites.map(s => s.category))];
       filtered.set(msaName, { ...summary, sites, companies, categories, siteCount: sites.length });
     }
     return filtered;
-  }, [summaries, selectedCategories, selectedCompanies, hasFilters]);
+  }, [summaries, selectedCategories, selectedCompanies, selectedSegments, hasFilters]);
 
   // Match MSA regions to competitor summaries by name
   const matchedMSAs = useMemo(() => {

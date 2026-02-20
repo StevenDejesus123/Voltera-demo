@@ -2,20 +2,21 @@ import type { GeoLevel, RegionDetails } from '../types';
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
-export type AggType = 'sum' | 'avg';
+export type AggType = 'sum' | 'avg' | 'max';
 
 export const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = {
   // sums — absolute counts / totals
   population:            'sum',
   rideshareTrips:        'sum',
   evStationCount:        'sum',
-  airportCount:          'sum',
-  avTestingCount:        'sum',
-  avTestingVehicles:     'sum',
   federalFundingAmount:  'sum',
   stateFundingCount:     'sum',
   evStationCountMSA:     'sum',
   areaSqrtMiles:         'sum',
+  // infrastructure counts — see resolveAggType() for level-specific logic
+  airportCount:          'max',
+  avTestingCount:        'max',
+  avTestingVehicles:     'max',
   // averages — rates, prices, densities
   populationDensity:     'avg',
   medianIncome:          'avg',
@@ -25,7 +26,6 @@ export const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = 
   rideshareDensity:      'avg',
   gasPrice:              'avg',
   electricityPrice:      'avg',
-  landValue:             'avg',
   snowdays:              'avg',
   snowdaysMSA:           'avg',
   temperature:           'avg',
@@ -35,6 +35,25 @@ export const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = 
   stormRisk:             'avg',
   earthquakeRisk:        'avg',
 };
+
+/**
+ * Infrastructure fields use different aggregation depending on geo level:
+ *  - County (0-mile buffer): regions are non-overlapping → sum is correct
+ *  - Tract (25-mile buffer): heavy overlap between adjacent tracts → max avoids
+ *    double-counting the same airports/AV sites across neighboring tracts
+ */
+const INFRA_FIELDS_OVERLAP: Set<keyof RegionDetails> = new Set([
+  'airportCount', 'avTestingCount', 'avTestingVehicles',
+]);
+
+export function resolveAggType(key: keyof RegionDetails, geoLevel: GeoLevel | string): AggType {
+  const base = FIELD_AGGREGATION[key];
+  if (!base) return 'avg';
+  if (INFRA_FIELDS_OVERLAP.has(key)) {
+    return geoLevel.toUpperCase() === 'COUNTY' ? 'sum' : 'max';
+  }
+  return base;
+}
 
 // ── Field visibility ──────────────────────────────────────────────────────────
 
@@ -55,7 +74,6 @@ export const FIELD_VISIBILITY: Record<string, Record<GeoLevel, boolean>> = {
   stateFundingCount:    { MSA: true,  County: true,  Tract: false },
   gasPrice:             { MSA: true,  County: true,  Tract: true  },
   electricityPrice:     { MSA: true,  County: true,  Tract: true  },
-  landValue:            { MSA: true,  County: true,  Tract: true  },
   snowdays:             { MSA: true,  County: true,  Tract: true  },
   temperature:          { MSA: true,  County: true,  Tract: true  },
   precipitation:        { MSA: true,  County: false, Tract: false },
@@ -83,7 +101,6 @@ export const FIELD_LABELS: Record<string, string> = {
   stateFundingCount:    'State Funding Awards',
   gasPrice:             'Gas Price ($/gal)',
   electricityPrice:     'Electricity Price (cents/kWh)',
-  landValue:            'Land Value ($/quarter-acre)',
   snowdays:             'Annual Snow Days',
   temperature:          'Avg Temperature (F)',
   precipitation:        'Precipitation (in)',
@@ -107,16 +124,30 @@ export function shouldShow(field: string, geoLevel: GeoLevel | string): boolean 
   return FIELD_VISIBILITY[field]?.[normalizeGeoLevel(geoLevel)] ?? false;
 }
 
-export function aggregateDetails(detailsList: (RegionDetails | undefined)[]): RegionDetails {
+export function aggregateDetails(
+  detailsList: (RegionDetails | undefined)[],
+  geoLevel: GeoLevel | string = 'County',
+): RegionDetails {
   const result: Partial<RegionDetails> = {};
   for (const key of Object.keys(FIELD_AGGREGATION) as (keyof RegionDetails)[]) {
-    const aggType = FIELD_AGGREGATION[key];
+    const aggType = resolveAggType(key, geoLevel);
     const values = detailsList
       .map(d => d?.[key] as number | undefined)
       .filter((v): v is number => v != null && !isNaN(v));
     if (values.length === 0) continue;
     const sum = values.reduce((a, b) => a + b, 0);
-    (result as any)[key] = aggType === 'sum' ? sum : sum / values.length;
+    switch (aggType) {
+      case 'sum': (result as any)[key] = sum; break;
+      case 'max': (result as any)[key] = Math.max(...values); break;
+      case 'avg': (result as any)[key] = sum / values.length; break;
+    }
+  }
+  // True deduplication for AV testing: union participant lists, derive count from unique set
+  const allParticipants = detailsList.flatMap(d => d?.avTestingParticipants ?? []);
+  if (allParticipants.length > 0) {
+    const uniqueParticipants = [...new Set(allParticipants)].sort();
+    result.avTestingParticipants = uniqueParticipants;
+    result.avTestingCount = uniqueParticipants.length;
   }
   return result as RegionDetails;
 }

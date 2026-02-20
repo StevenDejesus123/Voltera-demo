@@ -25,6 +25,7 @@ interface GeoPanelProps {
   showCompetitorLayer?: boolean;
   competitorCategories?: Set<string>;
   competitorCompanies?: Set<string>;
+  competitorSegments?: Set<string>;
 }
 
 type ViewMode = 'map' | 'table';
@@ -68,6 +69,7 @@ export function GeoPanel({
   showCompetitorLayer = false,
   competitorCategories,
   competitorCompanies,
+  competitorSegments,
 }: GeoPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [sortField, setSortField] = useState<SortField>('rank');
@@ -305,6 +307,7 @@ export function GeoPanel({
                   showCompetitorLayer={showCompetitorLayer}
                   competitorCategories={competitorCategories}
                   competitorCompanies={competitorCompanies}
+                  competitorSegments={competitorSegments}
                 />
                 {isLoading && (
                   <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.35)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>

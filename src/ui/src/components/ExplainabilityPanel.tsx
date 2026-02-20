@@ -2,123 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { Region, GeoLevel, RegionDetails } from '../types';
 import { getSalesforceMSASummary, loadSalesforceData } from '../dataLoader/salesforceLoader';
-
-// ── Aggregation ───────────────────────────────────────────────────────────────
-
-type AggType = 'sum' | 'avg' | 'max';
-
-const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = {
-  // sums — absolute counts / totals
-  population:            'sum',
-  rideshareTrips:        'sum',
-  evStationCount:        'sum',
-  federalFundingAmount:  'sum',
-  stateFundingCount:     'sum',
-  evStationCountMSA:     'sum',
-  areaSqrtMiles:         'sum',
-  // infrastructure counts — see resolveAggType() for level-specific logic
-  airportCount:          'max',
-  avTestingCount:        'max',
-  avTestingVehicles:     'max',
-  // averages — rates, prices, densities
-  populationDensity:     'avg',
-  medianIncome:          'avg',
-  avgWeeklyWage:         'avg',
-  publicTransitPct:      'avg',
-  ridesharePerCapita:    'avg',
-  rideshareDensity:      'avg',
-  gasPrice:              'avg',
-  electricityPrice:      'avg',
-  snowdays:              'avg',
-  snowdaysMSA:           'avg',
-  temperature:           'avg',
-  temperatureMSA:        'avg',
-  precipitation:         'avg',
-  hurricaneRisk:         'avg',
-  stormRisk:             'avg',
-  earthquakeRisk:        'avg',
-};
-
-/**
- * Infrastructure fields use different aggregation depending on geo level:
- *  - County (0-mile buffer): regions are non-overlapping → sum is correct
- *  - Tract (25-mile buffer): heavy overlap between adjacent tracts → max avoids
- *    double-counting the same airports/AV sites across neighboring tracts
- */
-const INFRA_FIELDS_OVERLAP: Set<keyof RegionDetails> = new Set([
-  'airportCount', 'avTestingCount', 'avTestingVehicles',
-]);
-
-function resolveAggType(key: keyof RegionDetails, geoLevel: GeoLevel | string): AggType {
-  const base = FIELD_AGGREGATION[key];
-  if (!base) return 'avg';
-  if (INFRA_FIELDS_OVERLAP.has(key)) {
-    // County uses 0-mile buffer (within boundary, non-overlapping) → sum
-    // Tract uses 25-mile buffer (heavily overlapping) → max
-    return geoLevel.toUpperCase() === 'COUNTY' ? 'sum' : 'max';
-  }
-  return base;
-}
-
-function aggregateDetails(detailsList: (RegionDetails | undefined)[], geoLevel: GeoLevel | string = 'County'): RegionDetails {
-  const result: Partial<RegionDetails> = {};
-  for (const key of Object.keys(FIELD_AGGREGATION) as (keyof RegionDetails)[]) {
-    const aggType = resolveAggType(key, geoLevel);
-    const values = detailsList
-      .map(d => d?.[key] as number | undefined)
-      .filter((v): v is number => v !== undefined && v !== null && !isNaN(v as number));
-    if (values.length === 0) continue;
-    (result as any)[key] = aggType === 'sum'
-      ? values.reduce((a, b) => a + b, 0)
-      : aggType === 'max'
-        ? Math.max(...values)
-        : values.reduce((a, b) => a + b, 0) / values.length;
-  }
-  // True deduplication for AV testing: union participant lists, derive count from unique set
-  const allParticipants = detailsList.flatMap(d => d?.avTestingParticipants ?? []);
-  if (allParticipants.length > 0) {
-    const uniqueParticipants = [...new Set(allParticipants)].sort();
-    result.avTestingParticipants = uniqueParticipants;
-    result.avTestingCount = uniqueParticipants.length;
-  }
-  return result as RegionDetails;
-}
-
-// ── Field visibility ──────────────────────────────────────────────────────────
-
-const FIELD_VISIBILITY: Record<string, Record<GeoLevel, boolean>> = {
-  evStationCount:       { MSA: true,  County: true,  Tract: true  },
-  airportCount:         { MSA: true,  County: true,  Tract: true  },
-  avTestingCount:       { MSA: true,  County: true,  Tract: true  },
-  avTestingVehicles:    { MSA: false, County: true,  Tract: false },
-  population:           { MSA: true,  County: true,  Tract: true  },
-  populationDensity:    { MSA: true,  County: true,  Tract: true  },
-  medianIncome:         { MSA: true,  County: true,  Tract: true  },
-  avgWeeklyWage:        { MSA: true,  County: true,  Tract: true  },
-  publicTransitPct:     { MSA: true,  County: true,  Tract: true  },
-  rideshareTrips:       { MSA: true,  County: true,  Tract: true  },
-  ridesharePerCapita:   { MSA: true,  County: false, Tract: false },
-  rideshareDensity:     { MSA: false, County: false, Tract: true  },
-  federalFundingAmount: { MSA: true,  County: true,  Tract: false },
-  stateFundingCount:    { MSA: true,  County: true,  Tract: false },
-  gasPrice:             { MSA: true,  County: true,  Tract: true  },
-  electricityPrice:     { MSA: true,  County: true,  Tract: true  },
-  snowdays:             { MSA: true,  County: true,  Tract: true  },
-  temperature:          { MSA: true,  County: true,  Tract: true  },
-  precipitation:        { MSA: true,  County: false, Tract: false },
-  hurricaneRisk:        { MSA: true,  County: false, Tract: false },
-  stormRisk:            { MSA: false, County: true,  Tract: false },
-  earthquakeRisk:       { MSA: false, County: false, Tract: true  },
-};
-
-function normalizeGeoLevel(geoLevel: GeoLevel | string): GeoLevel {
-  const LEVEL_MAP: Record<string, GeoLevel> = { MSA: 'MSA', COUNTY: 'County', TRACT: 'Tract' };
-  return LEVEL_MAP[geoLevel.toUpperCase()] ?? geoLevel as GeoLevel;
-}
-
-function shouldShow(field: string, geoLevel: GeoLevel | string): boolean {
-  return FIELD_VISIBILITY[field]?.[normalizeGeoLevel(geoLevel)] ?? false;
-}
+import { type AggType, aggregateDetails, resolveAggType, shouldShow } from '../utils/analysisUtils';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -192,14 +76,15 @@ function formatDecimal(val: number | undefined | null, decimals: number, prefix 
 
 // ── DetailItem ────────────────────────────────────────────────────────────────
 
+const AGG_BADGE_STYLES: Record<AggType, string> = {
+  sum: 'bg-blue-100 text-blue-700',
+  max: 'bg-green-100 text-green-700',
+  avg: 'bg-amber-100 text-amber-700',
+};
+
 function AggBadge({ type }: { type: AggType }) {
-  const cls = type === 'sum'
-    ? 'bg-blue-100 text-blue-700'
-    : type === 'max'
-      ? 'bg-green-100 text-green-700'
-      : 'bg-amber-100 text-amber-700';
   return (
-    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${cls}`}>
+    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${AGG_BADGE_STYLES[type]}`}>
       {type}
     </span>
   );
@@ -291,7 +176,7 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
           {shouldShow('avgWeeklyWage', geoLevel) && details.avgWeeklyWage !== undefined && (
             <DetailItem label="Avg Weekly Wage" value={formatNumber(details.avgWeeklyWage, '$')} icon={DollarSign} aggregation={agg('avgWeeklyWage')} />
           )}
-          {shouldShow('publicTransitPct', geoLevel) && details.publicTransitPct !== undefined && details.publicTransitPct !== null && (
+          {shouldShow('publicTransitPct', geoLevel) && details.publicTransitPct != null && (
             <DetailItem label="Public Transit %" value={formatDecimal(details.publicTransitPct * 100, 1, '', '%')} aggregation={agg('publicTransitPct')} />
           )}
         </div>
@@ -349,10 +234,10 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
             </h4>
           </div>
           <div className="px-4 py-2">
-            {shouldShow('gasPrice', geoLevel) && details.gasPrice !== undefined && details.gasPrice !== null && (
+            {shouldShow('gasPrice', geoLevel) && details.gasPrice != null && (
               <DetailItem label="Gas Price" value={formatDecimal(details.gasPrice, 2, '$', '/gal')} icon={DollarSign} aggregation={agg('gasPrice')} />
             )}
-            {shouldShow('electricityPrice', geoLevel) && details.electricityPrice !== undefined && details.electricityPrice !== null && (
+            {shouldShow('electricityPrice', geoLevel) && details.electricityPrice != null && (
               <DetailItem label="Electricity Price" value={formatDecimal(details.electricityPrice, 1, '', '¢/kWh')} icon={Zap} aggregation={agg('electricityPrice')} />
             )}
           </div>
@@ -368,22 +253,22 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
           </h4>
         </div>
         <div className="px-4 py-2">
-          {shouldShow('snowdays', geoLevel) && details.snowdays !== undefined && details.snowdays !== null && (
+          {shouldShow('snowdays', geoLevel) && details.snowdays != null && (
             <DetailItem label="Annual Snow Days" value={formatNumber(details.snowdays)} icon={CloudSnow} aggregation={agg('snowdays')} />
           )}
-          {shouldShow('temperature', geoLevel) && details.temperature !== undefined && details.temperature !== null && (
+          {shouldShow('temperature', geoLevel) && details.temperature != null && (
             <DetailItem label="Avg Temperature" value={formatDecimal(details.temperature, 1, '', '°F')} icon={Thermometer} aggregation={agg('temperature')} />
           )}
-          {shouldShow('precipitation', geoLevel) && details.precipitation !== undefined && details.precipitation !== null && (
+          {shouldShow('precipitation', geoLevel) && details.precipitation != null && (
             <DetailItem label="Precipitation" value={formatDecimal(details.precipitation, 1, '', ' in')} icon={CloudRain} aggregation={agg('precipitation')} />
           )}
-          {shouldShow('hurricaneRisk', geoLevel) && details.hurricaneRisk !== undefined && details.hurricaneRisk !== null && (
+          {shouldShow('hurricaneRisk', geoLevel) && details.hurricaneRisk != null && (
             <DetailItem label="Hurricane Risk" value={formatDecimal(details.hurricaneRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('hurricaneRisk')} />
           )}
-          {shouldShow('stormRisk', geoLevel) && details.stormRisk !== undefined && details.stormRisk !== null && (
+          {shouldShow('stormRisk', geoLevel) && details.stormRisk != null && (
             <DetailItem label="Storm Risk" value={formatDecimal(details.stormRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('stormRisk')} />
           )}
-          {shouldShow('earthquakeRisk', geoLevel) && details.earthquakeRisk !== undefined && details.earthquakeRisk !== null && (
+          {shouldShow('earthquakeRisk', geoLevel) && details.earthquakeRisk != null && (
             <DetailItem label="Earthquake Risk" value={formatDecimal(details.earthquakeRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('earthquakeRisk')} />
           )}
         </div>

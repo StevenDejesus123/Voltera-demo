@@ -61,29 +61,25 @@ export function getCompetitorCompanies(): string[] {
   return cache?.filters?.companies ?? [];
 }
 
-/** Normalize segment name to handle variants (dash vs space, spelling differences) */
-function normalizeSegmentName(segment: string): string {
+/**
+ * Map of normalized segment names (lowercase, space-separated) to their canonical forms.
+ * Handles variants like "Heavy Duty Goods" vs "Heavy Duty-Goods".
+ */
+const SEGMENT_CANONICAL: Record<string, string> = {
+  'heavy duty people': 'Heavy Duty-People',
+  'heavy duty goods':  'Heavy Duty-Goods',
+  'last mile':         'Last Mile',
+  'drayage':           'Drayage',
+};
+
+/**
+ * Normalize a segment name to canonical form, handling dash vs space variants.
+ * Returns the original segment if no canonical form exists.
+ */
+export function normalizeSegmentName(segment: string): string {
   if (!segment) return segment;
-
-  // Normalize to lowercase and trim
-  const normalized = segment.toLowerCase().trim();
-
-  // Map known variants to canonical names
-  const canonicalMap: Record<string, string> = {
-    'heavy duty people': 'Heavy Duty-People',
-    'heavy duty-people': 'Heavy Duty-People',
-    'heavy-duty people': 'Heavy Duty-People',
-    'heavy-duty-people': 'Heavy Duty-People',
-    'heavy duty goods': 'Heavy Duty-Goods',
-    'heavy duty-goods': 'Heavy Duty-Goods',
-    'heavy-duty goods': 'Heavy Duty-Goods',
-    'heavy-duty-goods': 'Heavy Duty-Goods',
-    'last mile': 'Last Mile',
-    'last-mile': 'Last Mile',
-    'drayage': 'Drayage',
-  };
-
-  return canonicalMap[normalized] || segment;
+  const normalized = segment.toLowerCase().trim().replace(/[-\s]+/g, ' ');
+  return SEGMENT_CANONICAL[normalized] ?? segment;
 }
 
 /** Get unique segments from the data (normalized). */
@@ -119,7 +115,7 @@ function matchesFilter(set: Set<string> | undefined, value: string): boolean {
   return !set || set.size === 0 || set.has(value);
 }
 
-/** Filter sites by selected criteria. */
+/** Filter sites by selected criteria (companies, categories, statuses, msas, states, segments). */
 export function filterCompetitorSites(
   sites: CompetitorSite[],
   filters: {
@@ -132,18 +128,19 @@ export function filterCompetitorSites(
   }
 ): CompetitorSite[] {
   return sites.filter(site => {
-    // For segment filtering, check both volteraSegment and customerSegment
-    // Apply normalization to handle spelling variants
-    const segmentMatch = !filters.segments || filters.segments.size === 0 ||
-      (site.volteraSegment && filters.segments.has(normalizeSegmentName(site.volteraSegment))) ||
-      (site.customerSegment && filters.segments.has(normalizeSegmentName(site.customerSegment)));
+    // Check standard filters (companies, categories, statuses, msas, states)
+    if (!matchesFilter(filters.companies, site.companyName)) return false;
+    if (!matchesFilter(filters.categories, site.category)) return false;
+    if (!matchesFilter(filters.statuses, site.status)) return false;
+    if (!matchesFilter(filters.msas, site.msa)) return false;
+    if (!matchesFilter(filters.states, site.state)) return false;
 
-    return matchesFilter(filters.companies, site.companyName)
-      && matchesFilter(filters.categories, site.category)
-      && matchesFilter(filters.statuses, site.status)
-      && matchesFilter(filters.msas, site.msa)
-      && matchesFilter(filters.states, site.state)
-      && segmentMatch;
+    // For segments, check both volteraSegment and customerSegment with normalization
+    // to handle spelling variants (e.g., "Heavy Duty Goods" vs "Heavy Duty-Goods")
+    if (!filters.segments || filters.segments.size === 0) return true;
+    const volteraMatch = site.volteraSegment && filters.segments.has(normalizeSegmentName(site.volteraSegment));
+    const customerMatch = site.customerSegment && filters.segments.has(normalizeSegmentName(site.customerSegment));
+    return volteraMatch || customerMatch;
   });
 }
 

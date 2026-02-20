@@ -92,6 +92,7 @@ interface GeoMapViewProps {
   showCompetitorLayer?: boolean;
   competitorCategories?: Set<string>;
   competitorCompanies?: Set<string>;
+  competitorSegments?: Set<string>;
 }
 
 /**
@@ -265,6 +266,7 @@ export function GeoMapView({
   showCompetitorLayer = false,
   competitorCategories,
   competitorCompanies,
+  competitorSegments,
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
   lassoEnabledRef.current = lassoEnabled;
@@ -457,6 +459,7 @@ export function GeoMapView({
             visible={showCompetitorLayer}
             selectedCategories={competitorCategories}
             selectedCompanies={competitorCompanies}
+            selectedSegments={competitorSegments}
           />
         )}
       </MapContainer>

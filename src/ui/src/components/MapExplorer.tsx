@@ -7,8 +7,8 @@ import { WhatIfPanel } from './WhatIfPanel';
 import { SavedViewsPanel } from './SavedViewsPanel';
 import { TimelineSlider } from './TimelineSlider';
 import { CompetitorTrackerPanel } from './CompetitorTrackerPanel';
-import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState, CompetitorSite } from '../types';
-import { getMockRegions, getCountiesForMSA, getTractsForCounty, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, getRegionDetails } from '../dataLoader/frontendLoader';
+import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState } from '../types';
+import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, getRegionDetails } from '../dataLoader/frontendLoader';
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
 import { getCompetitorSites, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
 import { loadSalesforceData } from '../dataLoader/salesforceLoader';
@@ -138,10 +138,7 @@ export function MapExplorer() {
       if (!s.msa) return false;
       const siteMsa = s.msa.toLowerCase().trim();
       const siteBase = siteMsa.split(',')[0].trim();
-      return siteMsa === msaName
-        || siteMsa.includes(msaBase)
-        || msaBase.includes(siteBase)
-        || siteBase.includes(msaBase);
+      return siteMsa === msaName || siteBase === msaBase;
     });
   }, [competitorSites, selectedMSA?.id]);
 
@@ -222,11 +219,12 @@ export function MapExplorer() {
     : [];
 
   // County IDs for tract lookup (multi-select union or single county)
-  const countyIdsForTracts = selectedCounties.length > 0
-    ? selectedCounties.map(c => c.id)
-    : selectedCounty
-      ? [selectedCounty.id]
-      : [];
+  let countyIdsForTracts: string[] = [];
+  if (selectedCounties.length > 0) {
+    countyIdsForTracts = selectedCounties.map(c => c.id);
+  } else if (selectedCounty) {
+    countyIdsForTracts = [selectedCounty.id];
+  }
 
   const tractsRaw = countyIdsForTracts.length > 0
     ? reRankByOriginalOrder(getTractsForCounties(countyIdsForTracts, segment, rankingThreshold, activeScenario, selectedTractIds))
@@ -300,12 +298,9 @@ export function MapExplorer() {
 
   // Lazy-load Tract data + per-county polygons when a County is first selected
   useEffect(() => {
-    const countyIds = selectedCounties.length > 0
-      ? selectedCounties.map(c => c.id)
-      : selectedCounty ? [selectedCounty.id] : [];
-    if (countyIds.length > 0) {
+    if (countyIdsForTracts.length > 0) {
       loadLevelOnDemand('Tract');
-      countyIds.forEach(id => loadTractPolygonsForCounty(id));
+      countyIdsForTracts.forEach(id => loadTractPolygonsForCounty(id));
     }
   }, [selectedCounty?.id, selectedCounties.length]);
 
@@ -582,6 +577,7 @@ export function MapExplorer() {
             showCompetitorLayer={showCompetitorLayer}
             competitorCategories={competitorCategories}
             competitorCompanies={competitorCompanies}
+            competitorSegments={competitorSegments}
           />
 
           {/* County Panel */}
@@ -604,6 +600,9 @@ export function MapExplorer() {
             onMapViewChange={setCountyMapView}
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
+            competitorCategories={competitorCategories}
+            competitorCompanies={competitorCompanies}
+            competitorSegments={competitorSegments}
           />
 
           {/* Tract Panel */}
@@ -626,6 +625,9 @@ export function MapExplorer() {
             onMapViewChange={setTractMapView}
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
+            competitorCategories={competitorCategories}
+            competitorCompanies={competitorCompanies}
+            competitorSegments={competitorSegments}
           />
         </div>
 

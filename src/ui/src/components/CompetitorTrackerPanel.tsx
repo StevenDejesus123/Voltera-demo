@@ -47,6 +47,12 @@ function formatTimeAgo(isoDate: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function getSyncLabel(refreshing: boolean, lastSynced: string | null): string {
+  if (refreshing) return 'Syncing...';
+  if (lastSynced) return formatTimeAgo(lastSynced);
+  return 'Sync';
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function CompetitorTrackerPanel({
@@ -121,14 +127,14 @@ export function CompetitorTrackerPanel({
   const stats = getCompetitorStats();
 
   const sortedCategories = useMemo(() => {
-    const cats = filters?.categories ?? [];
-    // Filter out 'Pipeline' from category toggles (it's included in "Customers Only" preset)
-    const filtered = cats.filter(c => c !== 'Pipeline');
-    return [...filtered].sort((a, b) => {
-      const ai = CATEGORY_ORDER.indexOf(a);
-      const bi = CATEGORY_ORDER.indexOf(b);
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    });
+    // Filter out 'Pipeline' — SF sites are displayed as 'Customer'
+    return (filters?.categories ?? [])
+      .filter(c => c !== 'Pipeline')
+      .sort((a, b) => {
+        const ai = CATEGORY_ORDER.indexOf(a);
+        const bi = CATEGORY_ORDER.indexOf(b);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
   }, [filters?.categories]);
 
   const availableSegments = useMemo(() => getCompetitorSegments(), [filters]);
@@ -140,52 +146,35 @@ export function CompetitorTrackerPanel({
       ).slice(0, 8)
     : [];
 
-  // ── Category toggle ────────────────────────────────────────────────────────
+  // ── Shared toggle logic ──────────────────────────────────────────────────────
+  // "Show all" = empty set. Toggling off the last item returns to "show all".
+  function toggleInSet(
+    selected: Set<string>,
+    allItems: string[],
+    item: string,
+    onChange: (next: Set<string>) => void,
+  ): void {
+    const next = new Set(selected);
+    if (selected.size === 0) {
+      // Currently showing all — select everything EXCEPT this item
+      for (const s of allItems) {
+        if (s !== item) next.add(s);
+      }
+    } else if (next.has(item)) {
+      next.delete(item);
+      if (next.size === 0) { onChange(new Set()); return; }
+    } else {
+      next.add(item);
+    }
+    onChange(next);
+  }
+
   function isCategoryActive(cat: string): boolean {
     return selectedCategories.size === 0 || selectedCategories.has(cat);
   }
 
-  function toggleCategory(cat: string) {
-    const next = new Set(selectedCategories);
-    if (selectedCategories.size === 0) {
-      // Currently showing all → select everything EXCEPT this one
-      for (const c of sortedCategories) {
-        if (c !== cat) next.add(c);
-      }
-    } else if (isCategoryActive(cat)) {
-      next.delete(cat);
-      if (next.size === 0) {
-        onCategoriesChange(new Set());
-        return;
-      }
-    } else {
-      next.add(cat);
-    }
-    onCategoriesChange(next);
-  }
-
-  // ── Segment toggle ─────────────────────────────────────────────────────────
   function isSegmentActive(seg: string): boolean {
     return selectedSegments.size === 0 || selectedSegments.has(seg);
-  }
-
-  function toggleSegment(seg: string) {
-    const next = new Set(selectedSegments);
-    if (selectedSegments.size === 0) {
-      // Currently showing all → select everything EXCEPT this one
-      for (const s of availableSegments) {
-        if (s !== seg) next.add(s);
-      }
-    } else if (isSegmentActive(seg)) {
-      next.delete(seg);
-      if (next.size === 0) {
-        onSegmentsChange(new Set());
-        return;
-      }
-    } else {
-      next.add(seg);
-    }
-    onSegmentsChange(next);
   }
 
   // ── Company selection ──────────────────────────────────────────────────────
@@ -201,23 +190,6 @@ export function CompetitorTrackerPanel({
     const next = new Set(selectedCompanies);
     next.delete(name);
     onCompaniesChange(next);
-  }
-
-  // ── Quick filter presets ───────────────────────────────────────────────────
-  function showOnlyCustomers() {
-    const customerCats = sortedCategories.filter(c => c === 'Customer' || c === 'Pipeline');
-    onCategoriesChange(new Set(customerCats));
-  }
-
-  function hideCompetitors() {
-    const nonCompetitorCats = sortedCategories.filter(c => c !== 'Competitor');
-    onCategoriesChange(new Set(nonCompetitorCats));
-  }
-
-  function showAll() {
-    onCategoriesChange(new Set());
-    onSegmentsChange(new Set());
-    onCompaniesChange(new Set());
   }
 
   const hasAnyFilter = selectedCompanies.size > 0 || selectedCategories.size > 0 || selectedSegments.size > 0;
@@ -253,13 +225,7 @@ export function CompetitorTrackerPanel({
               title="Sync from Salesforce"
             >
               <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
-              <span className="tabular-nums">
-                {refreshing
-                  ? 'Syncing...'
-                  : lastSynced
-                    ? formatTimeAgo(lastSynced)
-                    : 'Sync'}
-              </span>
+              <span className="tabular-nums">{getSyncLabel(refreshing, lastSynced)}</span>
             </button>
 
             {/* Close */}
@@ -281,30 +247,6 @@ export function CompetitorTrackerPanel({
         )}
       </div>
 
-      {/* ── Quick filter presets ──────────────────────────────────────────── */}
-      <div className="px-5 pb-3">
-        <div className="flex gap-2">
-          <button
-            onClick={showAll}
-            className="text-xs px-2.5 py-1 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
-          >
-            Show All
-          </button>
-          <button
-            onClick={showOnlyCustomers}
-            className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
-          >
-            Customers Only
-          </button>
-          <button
-            onClick={hideCompetitors}
-            className="text-xs px-2.5 py-1 rounded-md bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
-          >
-            Hide Competitors
-          </button>
-        </div>
-      </div>
-
       {/* ── Category toggles ─────────────────────────────────────────────── */}
       <div className="px-5 pb-3">
         <div className="flex gap-2">
@@ -314,7 +256,7 @@ export function CompetitorTrackerPanel({
             return (
               <button
                 key={cat}
-                onClick={() => toggleCategory(cat)}
+                onClick={() => toggleInSet(selectedCategories, sortedCategories, cat, onCategoriesChange)}
                 className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
                   active
                     ? 'text-white shadow-sm'
@@ -343,7 +285,7 @@ export function CompetitorTrackerPanel({
               return (
                 <button
                   key={seg}
-                  onClick={() => toggleSegment(seg)}
+                  onClick={() => toggleInSet(selectedSegments, availableSegments, seg, onSegmentsChange)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
                     active
                       ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
