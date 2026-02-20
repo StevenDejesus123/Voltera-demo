@@ -122,7 +122,9 @@ export function CompetitorTrackerPanel({
 
   const sortedCategories = useMemo(() => {
     const cats = filters?.categories ?? [];
-    return [...cats].sort((a, b) => {
+    // Filter out 'Pipeline' from category toggles (it's included in "Customers Only" preset)
+    const filtered = cats.filter(c => c !== 'Pipeline');
+    return [...filtered].sort((a, b) => {
       const ai = CATEGORY_ORDER.indexOf(a);
       const bi = CATEGORY_ORDER.indexOf(b);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
