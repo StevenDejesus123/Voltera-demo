@@ -61,6 +61,17 @@ export function getCompetitorCompanies(): string[] {
   return cache?.filters?.companies ?? [];
 }
 
+/** Get unique segments from the data. */
+export function getCompetitorSegments(): string[] {
+  if (!cache) return [];
+  const segments = new Set<string>();
+  for (const site of cache.sites) {
+    if (site.volteraSegment) segments.add(site.volteraSegment);
+    if (site.customerSegment) segments.add(site.customerSegment);
+  }
+  return [...segments].sort();
+}
+
 /** Get stats about the competitor data. */
 export function getCompetitorStats(): { totalSites: number; sitesWithCoords: number; companiesCount: number } | null {
   return cache?.stats ?? null;
@@ -92,15 +103,22 @@ export function filterCompetitorSites(
     statuses?: Set<string>;
     msas?: Set<string>;
     states?: Set<string>;
+    segments?: Set<string>;
   }
 ): CompetitorSite[] {
-  return sites.filter(site =>
-    matchesFilter(filters.companies, site.companyName)
-    && matchesFilter(filters.categories, site.category)
-    && matchesFilter(filters.statuses, site.status)
-    && matchesFilter(filters.msas, site.msa)
-    && matchesFilter(filters.states, site.state)
-  );
+  return sites.filter(site => {
+    // For segment filtering, check both volteraSegment and customerSegment
+    const segmentMatch = !filters.segments || filters.segments.size === 0 ||
+      filters.segments.has(site.volteraSegment) ||
+      filters.segments.has(site.customerSegment);
+
+    return matchesFilter(filters.companies, site.companyName)
+      && matchesFilter(filters.categories, site.category)
+      && matchesFilter(filters.statuses, site.status)
+      && matchesFilter(filters.msas, site.msa)
+      && matchesFilter(filters.states, site.state)
+      && segmentMatch;
+  });
 }
 
 /** Get color for a category. */
@@ -114,8 +132,6 @@ export function getCategoryColor(category: string): string {
       return '#EF4444'; // Red
     case 'Interest':
       return '#EAB308'; // Yellow
-    case 'Pipeline':
-      return '#14B8A6'; // Teal
     default:
       return '#6B7280'; // Gray
   }

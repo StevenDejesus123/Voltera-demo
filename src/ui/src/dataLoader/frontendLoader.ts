@@ -257,6 +257,24 @@ export function getTractsForCounties(
     });
 }
 
+/** Guarantees the details sidecar for a level is loaded before resolving.
+ *  If already loaded, resolves immediately. If loading in progress, waits for it. */
+export async function ensureDetailsLoaded(geoLevel: GeoLevel): Promise<void> {
+    const key = toKey(geoLevel);
+    if (detailsCache[key] !== null) return;           // already loaded
+    if (detailsLoadingState[key]) {                    // loading in progress — wait
+        await new Promise<void>(resolve => {
+            const handler = () => {
+                window.removeEventListener('frontend:details:updated', handler);
+                resolve();
+            };
+            window.addEventListener('frontend:details:updated', handler);
+        });
+        return;
+    }
+    await loadDetails(key);                            // trigger and await
+}
+
 /** Returns details for a region if the sidecar is loaded; null if still loading. */
 export function getRegionDetails(
     id: string,

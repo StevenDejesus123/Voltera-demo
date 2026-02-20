@@ -1,6 +1,7 @@
-import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { Segment, Region, WhatIfScenario, GeoLevel } from '../types';
+import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2 } from 'lucide-react';
+import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails } from '../types';
 import { exportToCSV, exportToGeoJSON, exportToKML, ExportOptions } from '../utils/exportUtils';
+import { ensureDetailsLoaded, getRegionDetails } from '../dataLoader/frontendLoader';
 import { useState } from 'react';
 import * as Slider from '@radix-ui/react-slider';
 
@@ -74,59 +75,78 @@ export function FilterPanel({
   const [exportFormat, setExportFormat] = useState<'CSV' | 'GeoJSON' | 'KML'>('CSV');
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [useSmartMerge, setUseSmartMerge] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const hasCountySelection = multiSelectedCounties.length > 0 || selectedCounty !== null;
   const hasTractSelection = multiSelectedTracts.length > 0 || selectedTract !== null;
 
   function hasSelectionForLevel(level: GeoLevel): boolean {
-    if (level === 'County') return hasCountySelection;
-    if (level === 'Tract') return hasTractSelection;
-    return false;
+    switch (level) {
+      case 'County': return hasCountySelection;
+      case 'Tract': return hasTractSelection;
+      default: return false;
+    }
   }
 
   function getSelectedRegionsForLevel(level: GeoLevel): Region[] | null {
-    if (level === 'County') {
-      if (multiSelectedCounties.length > 0) return multiSelectedCounties;
-      if (selectedCounty) return [selectedCounty];
+    switch (level) {
+      case 'County':
+        if (multiSelectedCounties.length > 0) return multiSelectedCounties;
+        return selectedCounty ? [selectedCounty] : null;
+      case 'Tract':
+        if (multiSelectedTracts.length > 0) return multiSelectedTracts;
+        return selectedTract ? [selectedTract] : null;
+      default:
+        return null;
     }
-    if (level === 'Tract') {
-      if (multiSelectedTracts.length > 0) return multiSelectedTracts;
-      if (selectedTract) return [selectedTract];
-    }
-    return null;
   }
 
   function getFilteredRegionsForLevel(level: GeoLevel): Region[] {
-    if (level === 'MSA') return msas;
-    if (level === 'County') return counties;
-    return tracts;
+    switch (level) {
+      case 'MSA': return msas;
+      case 'County': return counties;
+      default: return tracts;
+    }
   }
 
   function toggleId(id: string, selectedIds: string[], setSelectedIds: (ids: string[]) => void): void {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter(i => i !== id));
-    } else {
-      setSelectedIds([...selectedIds, id]);
-    }
+    setSelectedIds(
+      selectedIds.includes(id)
+        ? selectedIds.filter(i => i !== id)
+        : [...selectedIds, id]
+    );
   }
 
   function getRegionsForExport(): Region[] {
     return getSelectedRegionsForLevel(exportLevel) ?? getFilteredRegionsForLevel(exportLevel);
   }
 
-  function handleExport(): void {
+  async function handleExport(): Promise<void> {
     const regions = getRegionsForExport();
-    const options: ExportOptions = { useSmartMerge };
-    switch (exportFormat) {
-      case 'CSV':
-        exportToCSV(regions);
-        break;
-      case 'GeoJSON':
+    setIsExporting(true);
+    try {
+      await ensureDetailsLoaded(exportLevel);
+
+      const analysisData = new Map<string, RegionDetails>();
+      for (const region of regions) {
+        const details = getRegionDetails(region.id, exportLevel)?.details;
+        if (details) analysisData.set(region.id, details);
+      }
+
+      const options: ExportOptions = {
+        useSmartMerge,
+        analysisData: analysisData.size > 0 ? analysisData : undefined,
+      };
+
+      if (exportFormat === 'CSV') {
+        exportToCSV(regions, options);
+      } else if (exportFormat === 'GeoJSON') {
         exportToGeoJSON(regions, exportLevel, options);
-        break;
-      case 'KML':
+      } else {
         exportToKML(regions, exportLevel, options);
-        break;
+      }
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -502,11 +522,20 @@ export function FilterPanel({
         {/* Export Button */}
         <button
           onClick={handleExport}
-          disabled={exportRegions.length === 0}
+          disabled={exportRegions.length === 0 || isExporting}
           className="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
         >
-          <Download className="w-4 h-4" />
-          Export {exportFormat}
+          {isExporting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Preparing...
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4" />
+              Export {exportFormat}
+            </>
+          )}
         </button>
 
         <p className="text-xs text-gray-500 mt-3">

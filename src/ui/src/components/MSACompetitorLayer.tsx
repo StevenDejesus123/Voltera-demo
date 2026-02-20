@@ -5,11 +5,6 @@ import type { Region } from '../types';
 import { getMSACompetitorSummaries, getCategoryColor, type MSACompetitorSummary, loadCompetitorData } from '../dataLoader/competitorLoader';
 import { getSalesforceMSASummaries, loadSalesforceData } from '../dataLoader/salesforceLoader';
 
-/** Map raw category to display label (Pipeline sites show as Customer). */
-function displayCategory(raw: string): string {
-  return raw === 'Pipeline' ? 'Customer' : raw;
-}
-
 interface MSACompetitorLayerProps {
   regions: Region[];
   visible: boolean;
@@ -202,8 +197,7 @@ function MSACompetitorMarker({ region, summary }: { region: Region; summary: MSA
               const logoUrl = COMPANY_LOGOS[company];
               const color = getCompanyColor(company);
               const initials = getCompanyInitials(company);
-              const rawCategory = summary.sites.find(s => s.companyName === company)?.category ?? 'Unknown';
-              const category = displayCategory(rawCategory);
+              const category = summary.sites.find(s => s.companyName === company)?.category ?? 'Unknown';
 
               return (
                 <div
@@ -335,7 +329,7 @@ export function MSACompetitorLayer({ regions, visible, selectedCategories, selec
         // New MSA from SF only (no competitor data)
         merged.set(sfMsa, {
           msa: sfMsa,
-          categories: ['Pipeline'],
+          categories: ['Customer'],
           companies: sfData.accounts,
           siteCount: sfData.siteCount,
           sites: [],

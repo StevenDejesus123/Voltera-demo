@@ -86,7 +86,7 @@ export interface WhatIfScenario {
 }
 
 // Market Intelligence / Competitor Tracker types
-export type CompetitorCategory = 'Voltera' | 'Customer' | 'Competitor' | 'Interest' | 'Pipeline' | 'Unknown';
+export type CompetitorCategory = 'Voltera' | 'Customer' | 'Competitor' | 'Interest' | 'Unknown';
 
 export interface CompetitorSite {
   id: string;

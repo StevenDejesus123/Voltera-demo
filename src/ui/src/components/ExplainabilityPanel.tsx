@@ -422,7 +422,7 @@ function SalesforceCustomerCount({ region }: { region: Region }) {
       {sfSummary && sfSummary.accountCount > 0 && (
         <div className="ml-8 pt-1 border-t border-gray-200">
           <p className="text-xs font-medium text-teal-700">
-            {sfSummary.accountCount} from Salesforce Pipeline
+            {sfSummary.accountCount} from Salesforce
           </p>
           <div className="mt-1 flex flex-wrap gap-1">
             {sfSummary.accounts.slice(0, 6).map(name => (

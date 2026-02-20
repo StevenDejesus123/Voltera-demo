@@ -100,6 +100,7 @@ export function MapExplorer() {
   const [competitorStatuses, setCompetitorStatuses] = useState<Set<string>>(new Set());
   const [competitorMSAs, setCompetitorMSAs] = useState<Set<string>>(new Set());
   const [competitorStates, setCompetitorStates] = useState<Set<string>>(new Set());
+  const [competitorSegments, setCompetitorSegments] = useState<Set<string>>(new Set());
   const [competitorDataLoaded, setCompetitorDataLoaded] = useState(false);
 
   // Load competitor + Salesforce data on mount and listen for load events
@@ -120,8 +121,9 @@ export function MapExplorer() {
       statuses: competitorStatuses,
       msas: competitorMSAs,
       states: competitorStates,
+      segments: competitorSegments,
     });
-  }, [competitorCompanies, competitorCategories, competitorStatuses, competitorMSAs, competitorStates, competitorDataLoaded]);
+  }, [competitorCompanies, competitorCategories, competitorStatuses, competitorMSAs, competitorStates, competitorSegments, competitorDataLoaded]);
 
   // Competitor sites scoped to the selected MSA for county/tract pin display.
   // The global `competitorSites` list covers all geographies; narrowing to the
@@ -494,6 +496,8 @@ export function MapExplorer() {
                   onMSAsChange={setCompetitorMSAs}
                   selectedStates={competitorStates}
                   onStatesChange={setCompetitorStates}
+                  selectedSegments={competitorSegments}
+                  onSegmentsChange={setCompetitorSegments}
                   showLayer={showCompetitorLayer}
                   onToggleLayer={setShowCompetitorLayer}
                 />

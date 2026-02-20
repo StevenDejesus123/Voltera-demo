@@ -4,6 +4,7 @@ import type { CompetitorFilters } from '../types';
 import {
   getCompetitorFilters,
   getCompetitorStats,
+  getCompetitorSegments,
   getCategoryColor,
   loadCompetitorData,
 } from '../dataLoader/competitorLoader';
@@ -21,6 +22,8 @@ interface CompetitorTrackerPanelProps {
   onCompaniesChange: (companies: Set<string>) => void;
   selectedCategories: Set<string>;
   onCategoriesChange: (categories: Set<string>) => void;
+  selectedSegments: Set<string>;
+  onSegmentsChange: (segments: Set<string>) => void;
   // Kept for parent compatibility — not used in the popover UI
   selectedStatuses: Set<string>;
   onStatusesChange: (statuses: Set<string>) => void;
@@ -32,18 +35,7 @@ interface CompetitorTrackerPanelProps {
   onToggleLayer: (show: boolean) => void;
 }
 
-interface DisplayCategory {
-  label: string;
-  raw: string[];   // underlying category values
-  color: string;
-}
-
 const CATEGORY_ORDER = ['Customer', 'Competitor', 'Voltera'];
-const CATEGORY_MERGE: Record<string, string> = { Pipeline: 'Customer' };
-
-function displayLabel(raw: string): string {
-  return CATEGORY_MERGE[raw] ?? raw;
-}
 
 function formatTimeAgo(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -63,6 +55,8 @@ export function CompetitorTrackerPanel({
   onCompaniesChange,
   selectedCategories,
   onCategoriesChange,
+  selectedSegments,
+  onSegmentsChange,
   showLayer,
   onToggleLayer,
 }: CompetitorTrackerPanelProps) {
@@ -126,26 +120,16 @@ export function CompetitorTrackerPanel({
   // ── Derived data ───────────────────────────────────────────────────────────
   const stats = getCompetitorStats();
 
-  // Merge Pipeline → Customer for display
-  const displayCategories: DisplayCategory[] = useMemo(() => {
-    const rawCats = filters?.categories ?? [];
-    const groups = new Map<string, string[]>();
-    for (const cat of rawCats) {
-      const label = displayLabel(cat);
-      groups.set(label, [...(groups.get(label) ?? []), cat]);
-    }
-    return [...groups.entries()]
-      .map(([label, raw]) => ({
-        label,
-        raw,
-        color: getCategoryColor(label === 'Customer' ? 'Customer' : raw[0]),
-      }))
-      .sort((a, b) => {
-        const ai = CATEGORY_ORDER.indexOf(a.label);
-        const bi = CATEGORY_ORDER.indexOf(b.label);
-        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-      });
+  const sortedCategories = useMemo(() => {
+    const cats = filters?.categories ?? [];
+    return [...cats].sort((a, b) => {
+      const ai = CATEGORY_ORDER.indexOf(a);
+      const bi = CATEGORY_ORDER.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
   }, [filters?.categories]);
+
+  const availableSegments = useMemo(() => getCompetitorSegments(), [filters]);
 
   const allCompanies = filters?.companies ?? [];
   const companyResults = companyQuery
@@ -155,28 +139,51 @@ export function CompetitorTrackerPanel({
     : [];
 
   // ── Category toggle ────────────────────────────────────────────────────────
-  function isCategoryActive(group: DisplayCategory): boolean {
-    if (selectedCategories.size === 0) return true;
-    return group.raw.some(c => selectedCategories.has(c));
+  function isCategoryActive(cat: string): boolean {
+    return selectedCategories.size === 0 || selectedCategories.has(cat);
   }
 
-  function toggleCategory(group: DisplayCategory) {
+  function toggleCategory(cat: string) {
     const next = new Set(selectedCategories);
     if (selectedCategories.size === 0) {
-      // Currently showing all → select everything EXCEPT this group
-      for (const cat of displayCategories) {
-        if (cat.label !== group.label) cat.raw.forEach(c => next.add(c));
+      // Currently showing all → select everything EXCEPT this one
+      for (const c of sortedCategories) {
+        if (c !== cat) next.add(c);
       }
-    } else if (isCategoryActive(group)) {
-      group.raw.forEach(c => next.delete(c));
+    } else if (isCategoryActive(cat)) {
+      next.delete(cat);
       if (next.size === 0) {
         onCategoriesChange(new Set());
         return;
       }
     } else {
-      group.raw.forEach(c => next.add(c));
+      next.add(cat);
     }
     onCategoriesChange(next);
+  }
+
+  // ── Segment toggle ─────────────────────────────────────────────────────────
+  function isSegmentActive(seg: string): boolean {
+    return selectedSegments.size === 0 || selectedSegments.has(seg);
+  }
+
+  function toggleSegment(seg: string) {
+    const next = new Set(selectedSegments);
+    if (selectedSegments.size === 0) {
+      // Currently showing all → select everything EXCEPT this one
+      for (const s of availableSegments) {
+        if (s !== seg) next.add(s);
+      }
+    } else if (isSegmentActive(seg)) {
+      next.delete(seg);
+      if (next.size === 0) {
+        onSegmentsChange(new Set());
+        return;
+      }
+    } else {
+      next.add(seg);
+    }
+    onSegmentsChange(next);
   }
 
   // ── Company selection ──────────────────────────────────────────────────────
@@ -194,7 +201,24 @@ export function CompetitorTrackerPanel({
     onCompaniesChange(next);
   }
 
-  const hasAnyFilter = selectedCompanies.size > 0 || selectedCategories.size > 0;
+  // ── Quick filter presets ───────────────────────────────────────────────────
+  function showOnlyCustomers() {
+    const customerCats = sortedCategories.filter(c => c === 'Customer' || c === 'Pipeline');
+    onCategoriesChange(new Set(customerCats));
+  }
+
+  function hideCompetitors() {
+    const nonCompetitorCats = sortedCategories.filter(c => c !== 'Competitor');
+    onCategoriesChange(new Set(nonCompetitorCats));
+  }
+
+  function showAll() {
+    onCategoriesChange(new Set());
+    onSegmentsChange(new Set());
+    onCompaniesChange(new Set());
+  }
+
+  const hasAnyFilter = selectedCompanies.size > 0 || selectedCategories.size > 0 || selectedSegments.size > 0;
 
   return (
     <div
@@ -255,35 +279,82 @@ export function CompetitorTrackerPanel({
         )}
       </div>
 
+      {/* ── Quick filter presets ──────────────────────────────────────────── */}
+      <div className="px-5 pb-3">
+        <div className="flex gap-2">
+          <button
+            onClick={showAll}
+            className="text-xs px-2.5 py-1 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            Show All
+          </button>
+          <button
+            onClick={showOnlyCustomers}
+            className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+          >
+            Customers Only
+          </button>
+          <button
+            onClick={hideCompetitors}
+            className="text-xs px-2.5 py-1 rounded-md bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+          >
+            Hide Competitors
+          </button>
+        </div>
+      </div>
+
       {/* ── Category toggles ─────────────────────────────────────────────── */}
       <div className="px-5 pb-3">
         <div className="flex gap-2">
-          {displayCategories.map(group => {
-            const active = isCategoryActive(group);
+          {sortedCategories.map(cat => {
+            const active = isCategoryActive(cat);
+            const color = getCategoryColor(cat);
             return (
               <button
-                key={group.label}
-                onClick={() => toggleCategory(group)}
+                key={cat}
+                onClick={() => toggleCategory(cat)}
                 className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
                   active
                     ? 'text-white shadow-sm'
                     : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600'
                 }`}
-                style={active ? {
-                  backgroundColor: group.color,
-                  borderColor: group.color,
-                } : undefined}
+                style={active ? { backgroundColor: color, borderColor: color } : undefined}
               >
                 <span
                   className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: active ? 'rgba(255,255,255,0.7)' : group.color }}
+                  style={{ backgroundColor: active ? 'rgba(255,255,255,0.7)' : color }}
                 />
-                {group.label}
+                {cat}
               </button>
             );
           })}
         </div>
       </div>
+
+      {/* ── Segment toggles ───────────────────────────────────────────────── */}
+      {availableSegments.length > 0 && (
+        <div className="px-5 pb-3">
+          <p className="text-xs text-gray-500 font-medium mb-2">Customer Segment</p>
+          <div className="flex flex-wrap gap-2">
+            {availableSegments.map(seg => {
+              const active = isSegmentActive(seg);
+              return (
+                <button
+                  key={seg}
+                  onClick={() => toggleSegment(seg)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                    active
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600'
+                  }`}
+                >
+                  {seg}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-gray-100" />
 
@@ -353,6 +424,7 @@ export function CompetitorTrackerPanel({
             onClick={() => {
               onCompaniesChange(new Set());
               onCategoriesChange(new Set());
+              onSegmentsChange(new Set());
             }}
             className="w-full text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors py-1"
           >

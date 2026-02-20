@@ -1,13 +1,15 @@
-import { Region, GeoLevel } from '../types';
+import { Region, GeoLevel, RegionDetails } from '../types';
 import { getPolygonsForLevel } from '../dataLoader/geoPolygons';
 import union from '@turf/union';
 import buffer from '@turf/buffer';
 import { featureCollection, polygon, multiPolygon } from '@turf/helpers';
 import type { Feature, Polygon, MultiPolygon, GeoJsonProperties } from 'geojson';
+import { getVisibleFields, FIELD_LABELS, aggregateDetails, getVisibleAnalysis } from './analysisUtils';
 
 export interface ExportOptions {
   includePolygons?: boolean;
   useSmartMerge?: boolean;
+  analysisData?: Map<string, RegionDetails>;
 }
 
 interface RegionAggregates {
@@ -22,18 +24,57 @@ interface RegionAggregates {
 // Public export functions
 // ---------------------------------------------------------------------------
 
-export function exportToCSV(regions: Region[]): void {
-  const headers = ['Rank', 'Region ID', 'Region Name', 'Score', 'Customer Count', 'In Geofence', 'Geo Level'];
+export function exportToCSV(regions: Region[], options: ExportOptions = {}): void {
+  const { analysisData } = options;
+  const baseHeaders = ['Rank', 'Region ID', 'Region Name', 'Score', 'Customer Count', 'In Geofence', 'Geo Level'];
 
-  const rows = regions.map(region => [
-    region.rank,
-    region.id,
-    `"${region.name}"`,
-    region.score.toFixed(4),
-    region.customerCount,
-    region.inGeofence ? 'Yes' : 'No',
-    region.geoLevel,
-  ]);
+  // Determine analysis columns based on geo level
+  const geoLevel = regions.length > 0 ? regions[0].geoLevel : undefined;
+  const analysisFields = geoLevel && analysisData && analysisData.size > 0
+    ? getVisibleFields(geoLevel)
+    : [];
+  const analysisHeaders = analysisFields.map(f => FIELD_LABELS[f] || f);
+
+  const headers = [...baseHeaders, ...analysisHeaders];
+
+  const rows = regions.map(region => {
+    const base = [
+      region.rank,
+      region.id,
+      `"${region.name}"`,
+      region.score.toFixed(4),
+      region.customerCount,
+      region.inGeofence ? 'Yes' : 'No',
+      region.geoLevel,
+    ];
+    const analysis = analysisFields.map(field => {
+      const val = analysisData?.get(region.id)?.[field];
+      return val ?? '';
+    });
+    return [...base, ...analysis];
+  });
+
+  // Add summary row for multi-region exports
+  if (regions.length > 1 && analysisFields.length > 0 && analysisData && analysisData.size > 0) {
+    const detailsList = regions.map(r => analysisData.get(r.id));
+    const aggregated = aggregateDetails(detailsList);
+    const avgScore = regions.reduce((s, r) => s + r.score, 0) / regions.length;
+    const totalCustomers = regions.reduce((s, r) => s + r.customerCount, 0);
+    const summaryBase = [
+      'SUMMARY',
+      '',
+      `"${regions.length} regions aggregated"`,
+      avgScore.toFixed(4),
+      totalCustomers,
+      '',
+      geoLevel || '',
+    ];
+    const summaryAnalysis = analysisFields.map(field => {
+      const val = aggregated[field];
+      return val ?? '';
+    });
+    rows.push([...summaryBase, ...summaryAnalysis] as any);
+  }
 
   const csvContent = [
     headers.join(','),
@@ -48,7 +89,7 @@ export function exportToGeoJSON(
   geoLevel?: GeoLevel,
   options: ExportOptions = {}
 ): void {
-  const { useSmartMerge = false } = options;
+  const { useSmartMerge = false, analysisData } = options;
   const polygonMap = buildPolygonMap(geoLevel, options.includePolygons);
 
   // Smart merge: union all selected polygons into one shape
@@ -56,12 +97,14 @@ export function exportToGeoJSON(
     const merged = mergePolygonsByUnion(regions, polygonMap);
     if (merged) {
       const aggregates = computeRegionAggregates(regions);
+      const mergedAnalysis = buildMergedAnalysis(regions, geoLevel, analysisData);
       const features = [{
         type: 'Feature' as const,
         geometry: merged,
         properties: {
           name: `Merged ${geoLevel || 'Region'}s (${regions.length} regions)`,
           ...aggregates,
+          ...(mergedAnalysis && { analysis: mergedAnalysis }),
         },
       }];
 
@@ -71,23 +114,29 @@ export function exportToGeoJSON(
   }
 
   // Individual features with polygon geometry
-  const features = regions.map(region => ({
-    type: 'Feature' as const,
-    geometry: polygonMap.get(region.id) || {
-      type: 'Point',
-      coordinates: [region.lng, region.lat],
-    },
-    properties: {
-      id: region.id,
-      name: region.name,
-      rank: region.rank,
-      score: region.score,
-      customerCount: region.customerCount,
-      inGeofence: region.inGeofence,
-      geoLevel: region.geoLevel,
-      factors: region.factors,
-    },
-  }));
+  const features = regions.map(region => {
+    const analysis = geoLevel && analysisData
+      ? getVisibleAnalysis(analysisData.get(region.id), geoLevel)
+      : null;
+    return {
+      type: 'Feature' as const,
+      geometry: polygonMap.get(region.id) || {
+        type: 'Point',
+        coordinates: [region.lng, region.lat],
+      },
+      properties: {
+        id: region.id,
+        name: region.name,
+        rank: region.rank,
+        score: region.score,
+        customerCount: region.customerCount,
+        inGeofence: region.inGeofence,
+        geoLevel: region.geoLevel,
+        factors: region.factors,
+        ...(analysis && { analysis }),
+      },
+    };
+  });
 
   downloadGeoJSON(features, 'ranking-export.geojson');
 }
@@ -97,7 +146,7 @@ export function exportToKML(
   geoLevel?: GeoLevel,
   options: ExportOptions = {}
 ): void {
-  const { useSmartMerge = false } = options;
+  const { useSmartMerge = false, analysisData } = options;
   const polygonMap = buildPolygonMap(geoLevel, options.includePolygons);
 
   // Smart merge: union all selected polygons into one shape
@@ -106,6 +155,10 @@ export function exportToKML(
     if (merged) {
       const aggregates = computeRegionAggregates(regions);
       const regionList = regions.map(r => `- ${r.name} (#${r.rank})`).join('<br/>');
+      const mergedAnalysis = buildMergedAnalysis(regions, geoLevel, analysisData);
+      const analysisHTML = mergedAnalysis && geoLevel
+        ? buildAnalysisHTML(mergedAnalysis, geoLevel)
+        : '';
       const placemark = buildKMLPlacemark({
         name: `Merged ${geoLevel || 'Region'}s (${regions.length} regions)`,
         description: `
@@ -115,7 +168,7 @@ export function exportToKML(
         <b>Total Customers:</b> ${aggregates.totalCustomerCount.toLocaleString()}<br/>
         <hr/>
         <b>Included:</b><br/>
-        ${regionList}`,
+        ${regionList}${analysisHTML}`,
         geometry: merged,
         score: aggregates.avgScore,
         isPolygon: true,
@@ -129,6 +182,10 @@ export function exportToKML(
   // Individual placemarks with polygon geometry
   const placemarks = regions.map(region => {
     const polygonGeometry = polygonMap.get(region.id);
+    const details = analysisData?.get(region.id);
+    const analysisHTML = geoLevel && details
+      ? buildAnalysisHTML(details, geoLevel)
+      : '';
     return buildKMLPlacemark({
       name: escapeXml(region.name),
       description: `
@@ -136,7 +193,7 @@ export function exportToKML(
         <b>Score:</b> ${(region.score * 100).toFixed(1)}%<br/>
         <b>Customers:</b> ${region.customerCount.toLocaleString()}<br/>
         <b>In Geofence:</b> ${region.inGeofence ? 'Yes' : 'No'}<br/>
-        <b>Level:</b> ${region.geoLevel}`,
+        <b>Level:</b> ${region.geoLevel}${analysisHTML}`,
       geometry: polygonGeometry,
       score: region.score,
       isPolygon: !!polygonGeometry,
@@ -145,6 +202,42 @@ export function exportToKML(
   }).join('\n');
 
   downloadKML(placemarks, 'Site Ranking Export', 'AI-ranked regions for site selection', 'ranking-export.kml');
+}
+
+// ---------------------------------------------------------------------------
+// Analysis helpers for export enrichment
+// ---------------------------------------------------------------------------
+
+function formatAnalysisValue(val: number): string {
+  if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
+  if (val >= 1000) return `${(val / 1000).toFixed(1)}K`;
+  if (val < 1 && val > 0) return val.toFixed(3);
+  return val.toLocaleString();
+}
+
+/** Renders analysis details as HTML for KML description balloons. */
+function buildAnalysisHTML(details: RegionDetails | Partial<RegionDetails>, geoLevel: GeoLevel | string): string {
+  const fields = getVisibleFields(geoLevel);
+  const lines: string[] = [];
+  for (const field of fields) {
+    const val = details[field];
+    if (val == null) continue;
+    const label = FIELD_LABELS[field] || field;
+    lines.push(`<b>${escapeXml(label)}:</b> ${formatAnalysisValue(val)}`);
+  }
+  if (lines.length === 0) return '';
+  return `<br/><hr/><b>Region Analysis:</b><br/>${lines.join('<br/>')}`;
+}
+
+/** Builds aggregated analysis for merged/multi-region exports. */
+function buildMergedAnalysis(
+  regions: Region[],
+  geoLevel: GeoLevel | undefined,
+  analysisData: Map<string, RegionDetails> | undefined,
+): Partial<RegionDetails> | null {
+  if (!geoLevel || !analysisData || analysisData.size === 0) return null;
+  const detailsList = regions.map(r => analysisData.get(r.id));
+  return getVisibleAnalysis(aggregateDetails(detailsList), geoLevel);
 }
 
 // ---------------------------------------------------------------------------

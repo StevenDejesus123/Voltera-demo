@@ -52,6 +52,11 @@ export function CompetitorDetailCard({ site, onClose }: CompetitorDetailCardProp
               {site.volteraSegment}
             </span>
           )}
+          {site.customerSegment && site.customerSegment !== site.volteraSegment && (
+            <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: '#f0fdf4', color: '#16a34a' }}>
+              {site.customerSegment}
+            </span>
+          )}
         </div>
 
         {/* Location */}
