@@ -92,6 +92,7 @@ interface GeoMapViewProps {
   showCompetitorLayer?: boolean;
   competitorCategories?: Set<string>;
   competitorCompanies?: Set<string>;
+  competitorCompanyMode?: 'include' | 'exclude';
   competitorSegments?: Set<string>;
 }
 
@@ -266,6 +267,7 @@ export function GeoMapView({
   showCompetitorLayer = false,
   competitorCategories,
   competitorCompanies,
+  competitorCompanyMode = 'include',
   competitorSegments,
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
@@ -459,6 +461,7 @@ export function GeoMapView({
             visible={showCompetitorLayer}
             selectedCategories={competitorCategories}
             selectedCompanies={competitorCompanies}
+            companyMode={competitorCompanyMode}
             selectedSegments={competitorSegments}
           />
         )}

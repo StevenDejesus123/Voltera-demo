@@ -120,6 +120,7 @@ export function filterCompetitorSites(
   sites: CompetitorSite[],
   filters: {
     companies?: Set<string>;
+    companyMode?: 'include' | 'exclude';
     categories?: Set<string>;
     statuses?: Set<string>;
     msas?: Set<string>;
@@ -128,8 +129,15 @@ export function filterCompetitorSites(
   }
 ): CompetitorSite[] {
   return sites.filter(site => {
-    // Check standard filters (companies, categories, statuses, msas, states)
-    if (!matchesFilter(filters.companies, site.companyName)) return false;
+    // Company filter: include = show only selected; exclude = hide selected
+    if (filters.companies && filters.companies.size > 0) {
+      const isSelected = filters.companies.has(site.companyName);
+      if (filters.companyMode === 'exclude') {
+        if (isSelected) return false;
+      } else {
+        if (!isSelected) return false;
+      }
+    }
     if (!matchesFilter(filters.categories, site.category)) return false;
     if (!matchesFilter(filters.statuses, site.status)) return false;
     if (!matchesFilter(filters.msas, site.msa)) return false;

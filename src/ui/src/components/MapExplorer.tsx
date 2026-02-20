@@ -95,7 +95,12 @@ export function MapExplorer() {
   // Market Intelligence / Competitor Tracker state
   const [showCompetitorPanel, setShowCompetitorPanel] = useState(false);
   const [showCompetitorLayer, setShowCompetitorLayer] = useState(true);
-  const [competitorCompanies, setCompetitorCompanies] = useState<Set<string>>(new Set());
+  const [competitorIncludeCompanies, setCompetitorIncludeCompanies] = useState<Set<string>>(new Set());
+  const [competitorExcludeCompanies, setCompetitorExcludeCompanies] = useState<Set<string>>(new Set());
+  const [competitorCompanyMode, setCompetitorCompanyMode] = useState<'include' | 'exclude'>('include');
+  // Active company set based on current mode
+  const competitorCompanies = competitorCompanyMode === 'include' ? competitorIncludeCompanies : competitorExcludeCompanies;
+  const setCompetitorCompanies = competitorCompanyMode === 'include' ? setCompetitorIncludeCompanies : setCompetitorExcludeCompanies;
   const [competitorCategories, setCompetitorCategories] = useState<Set<string>>(new Set());
   const [competitorStatuses, setCompetitorStatuses] = useState<Set<string>>(new Set());
   const [competitorMSAs, setCompetitorMSAs] = useState<Set<string>>(new Set());
@@ -117,13 +122,14 @@ export function MapExplorer() {
     const all = getCompetitorSites();
     return filterCompetitorSites(all, {
       companies: competitorCompanies,
+      companyMode: competitorCompanyMode,
       categories: competitorCategories,
       statuses: competitorStatuses,
       msas: competitorMSAs,
       states: competitorStates,
       segments: competitorSegments,
     });
-  }, [competitorCompanies, competitorCategories, competitorStatuses, competitorMSAs, competitorStates, competitorSegments, competitorDataLoaded]);
+  }, [competitorCompanies, competitorCompanyMode, competitorCategories, competitorStatuses, competitorMSAs, competitorStates, competitorSegments, competitorDataLoaded]);
 
   // Competitor sites scoped to the selected MSA for county/tract pin display.
   // The global `competitorSites` list covers all geographies; narrowing to the
@@ -483,6 +489,8 @@ export function MapExplorer() {
                   onClose={() => setShowCompetitorPanel(false)}
                   selectedCompanies={competitorCompanies}
                   onCompaniesChange={setCompetitorCompanies}
+                  companyFilterMode={competitorCompanyMode}
+                  onCompanyFilterModeChange={setCompetitorCompanyMode}
                   selectedCategories={competitorCategories}
                   onCategoriesChange={setCompetitorCategories}
                   selectedStatuses={competitorStatuses}
@@ -577,6 +585,7 @@ export function MapExplorer() {
             showCompetitorLayer={showCompetitorLayer}
             competitorCategories={competitorCategories}
             competitorCompanies={competitorCompanies}
+            competitorCompanyMode={competitorCompanyMode}
             competitorSegments={competitorSegments}
           />
 
@@ -602,6 +611,7 @@ export function MapExplorer() {
             showCompetitorLayer={showCompetitorLayer}
             competitorCategories={competitorCategories}
             competitorCompanies={competitorCompanies}
+            competitorCompanyMode={competitorCompanyMode}
             competitorSegments={competitorSegments}
           />
 
@@ -627,6 +637,7 @@ export function MapExplorer() {
             showCompetitorLayer={showCompetitorLayer}
             competitorCategories={competitorCategories}
             competitorCompanies={competitorCompanies}
+            competitorCompanyMode={competitorCompanyMode}
             competitorSegments={competitorSegments}
           />
         </div>

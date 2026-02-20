@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen, ChevronRight } from 'lucide-react';
 import { Region, GeoLevel, RegionDetails } from '../types';
 import { getSalesforceMSASummary, loadSalesforceData } from '../dataLoader/salesforceLoader';
 import { type AggType, aggregateDetails, resolveAggType, shouldShow } from '../utils/analysisUtils';
@@ -121,158 +121,153 @@ interface DetailSectionsProps {
   isAirportTract?: boolean;
 }
 
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  iconColor,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  title: string;
+  icon: React.ElementType;
+  iconColor: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between hover:bg-gray-100 transition-colors"
+      >
+        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <Icon className={`w-4 h-4 ${iconColor}`} />
+          {title}
+        </h4>
+        <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`} />
+      </button>
+      {isOpen && <div className="px-4 py-2">{children}</div>}
+    </div>
+  );
+}
+
 function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: DetailSectionsProps) {
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
+
+  const toggle = (key: string) => {
+    setOpenSections(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const agg = (field: keyof RegionDetails): AggType | undefined =>
     showAggBadges ? resolveAggType(field, geoLevel) : undefined;
 
   return (
     <div className="space-y-4">
       {/* Infrastructure */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-yellow-500" />
-            Infrastructure
-          </h4>
-        </div>
-        <div className="px-4 py-2">
-          {shouldShow('evStationCount', geoLevel) && details.evStationCount !== undefined && (
-            <DetailItem label="EV Stations (Non-Tesla)" value={formatNumber(details.evStationCount)} icon={Zap} aggregation={agg('evStationCount')} />
-          )}
-          {shouldShow('airportCount', geoLevel) && details.airportCount !== undefined && (
-            <DetailItem
-              label={isAirportTract ? 'Nearby Airports (25mi)' : 'Nearby Airports'}
-              value={formatNumber(details.airportCount)}
-              icon={Building2}
-            />
-          )}
-          {shouldShow('avTestingCount', geoLevel) && details.avTestingCount !== undefined && (
-            <DetailItem label="AV Testing Sites" value={formatNumber(details.avTestingCount)} icon={Car} />
-          )}
-          {shouldShow('avTestingVehicles', geoLevel) && details.avTestingVehicles !== undefined && (
-            <DetailItem label="AV Testing Vehicles" value={formatNumber(details.avTestingVehicles)} icon={Car} />
-          )}
-        </div>
-      </div>
+      <CollapsibleSection title="Infrastructure" icon={Zap} iconColor="text-yellow-500" isOpen={openSections.has('infra')} onToggle={() => toggle('infra')}>
+        {shouldShow('evStationCount', geoLevel) && details.evStationCount !== undefined && (
+          <DetailItem label="EV Stations (Non-Tesla)" value={formatNumber(details.evStationCount)} icon={Zap} aggregation={agg('evStationCount')} />
+        )}
+        {shouldShow('airportCount', geoLevel) && details.airportCount !== undefined && (
+          <DetailItem
+            label={isAirportTract ? 'Nearby Airports (25mi)' : 'Nearby Airports'}
+            value={formatNumber(details.airportCount)}
+            icon={Building2}
+          />
+        )}
+        {shouldShow('avTestingCount', geoLevel) && details.avTestingCount !== undefined && (
+          <DetailItem label="AV Testing Sites" value={formatNumber(details.avTestingCount)} icon={Car} />
+        )}
+        {shouldShow('avTestingVehicles', geoLevel) && details.avTestingVehicles !== undefined && (
+          <DetailItem label="AV Testing Vehicles" value={formatNumber(details.avTestingVehicles)} icon={Car} />
+        )}
+      </CollapsibleSection>
 
       {/* Demographics */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Users className="w-4 h-4 text-blue-500" />
-            Demographics
-          </h4>
-        </div>
-        <div className="px-4 py-2">
-          {shouldShow('population', geoLevel) && details.population !== undefined && (
-            <DetailItem label="Total Population" value={formatNumber(details.population)} icon={Users} aggregation={agg('population')} />
-          )}
-          {shouldShow('populationDensity', geoLevel) && details.populationDensity !== undefined && (
-            <DetailItem label="Population Density" value={formatNumber(details.populationDensity, '', '/sq mi')} aggregation={agg('populationDensity')} />
-          )}
-          {shouldShow('medianIncome', geoLevel) && details.medianIncome !== undefined && (
-            <DetailItem label="Median Income" value={formatNumber(details.medianIncome, '$')} icon={DollarSign} aggregation={agg('medianIncome')} />
-          )}
-          {shouldShow('avgWeeklyWage', geoLevel) && details.avgWeeklyWage !== undefined && (
-            <DetailItem label="Avg Weekly Wage" value={formatNumber(details.avgWeeklyWage, '$')} icon={DollarSign} aggregation={agg('avgWeeklyWage')} />
-          )}
-          {shouldShow('publicTransitPct', geoLevel) && details.publicTransitPct != null && (
-            <DetailItem label="Public Transit %" value={formatDecimal(details.publicTransitPct * 100, 1, '', '%')} aggregation={agg('publicTransitPct')} />
-          )}
-        </div>
-      </div>
+      <CollapsibleSection title="Demographics" icon={Users} iconColor="text-blue-500" isOpen={openSections.has('demo')} onToggle={() => toggle('demo')}>
+        {shouldShow('population', geoLevel) && details.population !== undefined && (
+          <DetailItem label="Total Population" value={formatNumber(details.population)} icon={Users} aggregation={agg('population')} />
+        )}
+        {shouldShow('populationDensity', geoLevel) && details.populationDensity !== undefined && (
+          <DetailItem label="Population Density" value={formatNumber(details.populationDensity, '', '/sq mi')} aggregation={agg('populationDensity')} />
+        )}
+        {shouldShow('medianIncome', geoLevel) && details.medianIncome !== undefined && (
+          <DetailItem label="Median Income" value={formatNumber(details.medianIncome, '$')} icon={DollarSign} aggregation={agg('medianIncome')} />
+        )}
+        {shouldShow('avgWeeklyWage', geoLevel) && details.avgWeeklyWage !== undefined && (
+          <DetailItem label="Avg Weekly Wage" value={formatNumber(details.avgWeeklyWage, '$')} icon={DollarSign} aggregation={agg('avgWeeklyWage')} />
+        )}
+        {shouldShow('publicTransitPct', geoLevel) && details.publicTransitPct != null && (
+          <DetailItem label="Public Transit %" value={formatDecimal(details.publicTransitPct * 100, 1, '', '%')} aggregation={agg('publicTransitPct')} />
+        )}
+      </CollapsibleSection>
 
       {/* Mobility */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-green-500" />
-            Mobility & Rideshare
-          </h4>
-        </div>
-        <div className="px-4 py-2">
-          {shouldShow('rideshareTrips', geoLevel) && details.rideshareTrips !== undefined && (
-            <DetailItem label="Rideshare Trips" value={formatNumber(details.rideshareTrips)} icon={Car} aggregation={agg('rideshareTrips')} />
-          )}
-          {shouldShow('ridesharePerCapita', geoLevel) && details.ridesharePerCapita !== undefined && (
-            <DetailItem label="Rideshare Per Capita" value={formatNumber(details.ridesharePerCapita)} aggregation={agg('ridesharePerCapita')} />
-          )}
-          {shouldShow('rideshareDensity', geoLevel) && details.rideshareDensity !== undefined && (
-            <DetailItem label="Rideshare Density" value={formatNumber(details.rideshareDensity)} aggregation={agg('rideshareDensity')} />
-          )}
-        </div>
-      </div>
+      <CollapsibleSection title="Mobility & Rideshare" icon={Activity} iconColor="text-green-500" isOpen={openSections.has('mobility')} onToggle={() => toggle('mobility')}>
+        {shouldShow('rideshareTrips', geoLevel) && details.rideshareTrips !== undefined && (
+          <DetailItem label="Rideshare Trips" value={formatNumber(details.rideshareTrips)} icon={Car} aggregation={agg('rideshareTrips')} />
+        )}
+        {shouldShow('ridesharePerCapita', geoLevel) && details.ridesharePerCapita !== undefined && (
+          <DetailItem label="Rideshare Per Capita" value={formatNumber(details.ridesharePerCapita)} aggregation={agg('ridesharePerCapita')} />
+        )}
+        {shouldShow('rideshareDensity', geoLevel) && details.rideshareDensity !== undefined && (
+          <DetailItem label="Rideshare Density" value={formatNumber(details.rideshareDensity)} aggregation={agg('rideshareDensity')} />
+        )}
+      </CollapsibleSection>
 
       {/* Funding */}
       {(shouldShow('federalFundingAmount', geoLevel) || shouldShow('stateFundingCount', geoLevel)) &&
         (details.federalFundingAmount !== undefined || details.stateFundingCount !== undefined) && (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-              <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-500" />
-                Funding & Incentives
-              </h4>
-            </div>
-            <div className="px-4 py-2">
-              {shouldShow('federalFundingAmount', geoLevel) && details.federalFundingAmount !== undefined && (
-                <DetailItem label="Federal Funding" value={formatNumber(details.federalFundingAmount, '$')} icon={DollarSign} aggregation={agg('federalFundingAmount')} />
-              )}
-              {shouldShow('stateFundingCount', geoLevel) && details.stateFundingCount !== undefined && (
-                <DetailItem label="State Funding Awards" value={formatNumber(details.stateFundingCount)} aggregation={agg('stateFundingCount')} />
-              )}
-            </div>
-          </div>
+          <CollapsibleSection title="Funding & Incentives" icon={DollarSign} iconColor="text-emerald-500" isOpen={openSections.has('funding')} onToggle={() => toggle('funding')}>
+            {shouldShow('federalFundingAmount', geoLevel) && details.federalFundingAmount !== undefined && (
+              <DetailItem label="Federal Funding" value={formatNumber(details.federalFundingAmount, '$')} icon={DollarSign} aggregation={agg('federalFundingAmount')} />
+            )}
+            {shouldShow('stateFundingCount', geoLevel) && details.stateFundingCount !== undefined && (
+              <DetailItem label="State Funding Awards" value={formatNumber(details.stateFundingCount)} aggregation={agg('stateFundingCount')} />
+            )}
+          </CollapsibleSection>
         )}
 
       {/* Costs */}
       {(details.gasPrice !== undefined || details.electricityPrice !== undefined) && (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-amber-500" />
-              Costs
-            </h4>
-          </div>
-          <div className="px-4 py-2">
-            {shouldShow('gasPrice', geoLevel) && details.gasPrice != null && (
-              <DetailItem label="Gas Price" value={formatDecimal(details.gasPrice, 2, '$', '/gal')} icon={DollarSign} aggregation={agg('gasPrice')} />
-            )}
-            {shouldShow('electricityPrice', geoLevel) && details.electricityPrice != null && (
-              <DetailItem label="Electricity Price" value={formatDecimal(details.electricityPrice, 1, '', '¢/kWh')} icon={Zap} aggregation={agg('electricityPrice')} />
-            )}
-          </div>
-        </div>
+        <CollapsibleSection title="Costs" icon={DollarSign} iconColor="text-amber-500" isOpen={openSections.has('costs')} onToggle={() => toggle('costs')}>
+          {shouldShow('gasPrice', geoLevel) && details.gasPrice != null && (
+            <DetailItem label="Gas Price" value={formatDecimal(details.gasPrice, 2, '$', '/gal')} icon={DollarSign} aggregation={agg('gasPrice')} />
+          )}
+          {shouldShow('electricityPrice', geoLevel) && details.electricityPrice != null && (
+            <DetailItem label="Electricity Price" value={formatDecimal(details.electricityPrice, 1, '', '¢/kWh')} icon={Zap} aggregation={agg('electricityPrice')} />
+          )}
+        </CollapsibleSection>
       )}
 
       {/* Climate & Risk */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Thermometer className="w-4 h-4 text-orange-500" />
-            Climate & Risk
-          </h4>
-        </div>
-        <div className="px-4 py-2">
-          {shouldShow('snowdays', geoLevel) && details.snowdays != null && (
-            <DetailItem label="Annual Snow Days" value={formatNumber(details.snowdays)} icon={CloudSnow} aggregation={agg('snowdays')} />
-          )}
-          {shouldShow('temperature', geoLevel) && details.temperature != null && (
-            <DetailItem label="Avg Temperature" value={formatDecimal(details.temperature, 1, '', '°F')} icon={Thermometer} aggregation={agg('temperature')} />
-          )}
-          {shouldShow('precipitation', geoLevel) && details.precipitation != null && (
-            <DetailItem label="Precipitation" value={formatDecimal(details.precipitation, 1, '', ' in')} icon={CloudRain} aggregation={agg('precipitation')} />
-          )}
-          {shouldShow('hurricaneRisk', geoLevel) && details.hurricaneRisk != null && (
-            <DetailItem label="Hurricane Risk" value={formatDecimal(details.hurricaneRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('hurricaneRisk')} />
-          )}
-          {shouldShow('stormRisk', geoLevel) && details.stormRisk != null && (
-            <DetailItem label="Storm Risk" value={formatDecimal(details.stormRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('stormRisk')} />
-          )}
-          {shouldShow('earthquakeRisk', geoLevel) && details.earthquakeRisk != null && (
-            <DetailItem label="Earthquake Risk" value={formatDecimal(details.earthquakeRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('earthquakeRisk')} />
-          )}
-        </div>
-      </div>
+      <CollapsibleSection title="Climate & Risk" icon={Thermometer} iconColor="text-orange-500" isOpen={openSections.has('climate')} onToggle={() => toggle('climate')}>
+        {shouldShow('snowdays', geoLevel) && details.snowdays != null && (
+          <DetailItem label="Annual Snow Days" value={formatNumber(details.snowdays)} icon={CloudSnow} aggregation={agg('snowdays')} />
+        )}
+        {shouldShow('temperature', geoLevel) && details.temperature != null && (
+          <DetailItem label="Avg Temperature" value={formatDecimal(details.temperature, 1, '', '°F')} icon={Thermometer} aggregation={agg('temperature')} />
+        )}
+        {shouldShow('precipitation', geoLevel) && details.precipitation != null && (
+          <DetailItem label="Precipitation" value={formatDecimal(details.precipitation, 1, '', ' in')} icon={CloudRain} aggregation={agg('precipitation')} />
+        )}
+        {shouldShow('hurricaneRisk', geoLevel) && details.hurricaneRisk != null && (
+          <DetailItem label="Hurricane Risk" value={formatDecimal(details.hurricaneRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('hurricaneRisk')} />
+        )}
+        {shouldShow('stormRisk', geoLevel) && details.stormRisk != null && (
+          <DetailItem label="Storm Risk" value={formatDecimal(details.stormRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('stormRisk')} />
+        )}
+        {shouldShow('earthquakeRisk', geoLevel) && details.earthquakeRisk != null && (
+          <DetailItem label="Earthquake Risk" value={formatDecimal(details.earthquakeRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('earthquakeRisk')} />
+        )}
+      </CollapsibleSection>
     </div>
   );
 }

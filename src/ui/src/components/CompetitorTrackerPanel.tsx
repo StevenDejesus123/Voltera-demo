@@ -16,10 +16,14 @@ import {
 
 // ── Types & Helpers ──────────────────────────────────────────────────────────
 
+type CompanyFilterMode = 'include' | 'exclude';
+
 interface CompetitorTrackerPanelProps {
   onClose: () => void;
   selectedCompanies: Set<string>;
   onCompaniesChange: (companies: Set<string>) => void;
+  companyFilterMode: CompanyFilterMode;
+  onCompanyFilterModeChange: (mode: CompanyFilterMode) => void;
   selectedCategories: Set<string>;
   onCategoriesChange: (categories: Set<string>) => void;
   selectedSegments: Set<string>;
@@ -59,6 +63,8 @@ export function CompetitorTrackerPanel({
   onClose,
   selectedCompanies,
   onCompaniesChange,
+  companyFilterMode,
+  onCompanyFilterModeChange,
   selectedCategories,
   onCategoriesChange,
   selectedSegments,
@@ -302,15 +308,35 @@ export function CompetitorTrackerPanel({
 
       <div className="border-t border-gray-100" />
 
-      {/* ── Company search ────────────────────────────────────────────────── */}
+      {/* ── Company filter ──────────────────────────────────────────────── */}
       <div className="px-5 py-3">
+        {/* Mode toggle */}
+        <div className="flex items-center gap-1 mb-2.5 bg-gray-100 rounded-lg p-0.5">
+          {(['include', 'exclude'] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => onCompanyFilterModeChange(mode)}
+              className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                companyFilterMode === mode
+                  ? mode === 'include'
+                    ? 'bg-white text-indigo-700 shadow-sm'
+                    : 'bg-white text-red-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {mode === 'include' ? 'Show only' : 'Hide'}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
           <input
             ref={searchRef}
             type="text"
             placeholder={selectedCompanies.size > 0
-              ? 'Add another company...'
+              ? `${companyFilterMode === 'include' ? 'Add' : 'Hide'} another company...`
               : `Filter from ${allCompanies.length} companies...`
             }
             value={companyQuery}
@@ -327,12 +353,18 @@ export function CompetitorTrackerPanel({
             {[...selectedCompanies].map(name => (
               <span
                 key={name}
-                className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium group"
+                className={`inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-lg text-xs font-medium group ${
+                  companyFilterMode === 'exclude'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-indigo-50 text-indigo-700'
+                }`}
               >
                 {name}
                 <button
                   onClick={() => removeCompany(name)}
-                  className="p-0.5 rounded hover:bg-indigo-100 transition-colors"
+                  className={`p-0.5 rounded transition-colors ${
+                    companyFilterMode === 'exclude' ? 'hover:bg-red-100' : 'hover:bg-indigo-100'
+                  }`}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -349,7 +381,11 @@ export function CompetitorTrackerPanel({
                 <button
                   key={name}
                   onMouseDown={() => addCompany(name)}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                  className={`w-full text-left px-4 py-2 text-sm text-gray-700 transition-colors first:rounded-t-xl last:rounded-b-xl ${
+                    companyFilterMode === 'exclude'
+                      ? 'hover:bg-red-50 hover:text-red-700'
+                      : 'hover:bg-indigo-50 hover:text-indigo-700'
+                  }`}
                 >
                   {name}
                 </button>

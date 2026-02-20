@@ -10,6 +10,7 @@ interface MSACompetitorLayerProps {
   visible: boolean;
   selectedCategories?: Set<string>;
   selectedCompanies?: Set<string>;
+  companyMode?: 'include' | 'exclude';
   selectedSegments?: Set<string>;
 }
 
@@ -273,7 +274,7 @@ function namesMatch(a: string, b: string): boolean {
   return aN === bN || aN.includes(bN) || bN.includes(aN);
 }
 
-export function MSACompetitorLayer({ regions, visible, selectedCategories, selectedCompanies, selectedSegments }: MSACompetitorLayerProps) {
+export function MSACompetitorLayer({ regions, visible, selectedCategories, selectedCompanies, companyMode = 'include', selectedSegments }: MSACompetitorLayerProps) {
   // State to trigger re-render when competitor or SF data loads
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sfLoaded, setSfLoaded] = useState(false);
@@ -357,9 +358,13 @@ export function MSACompetitorLayer({ regions, visible, selectedCategories, selec
         sites = sites.filter(s => selectedCategories.has(s.category));
       }
 
-      // Apply company filter
+      // Apply company filter: include = show only selected; exclude = hide selected
       if (selectedCompanies && selectedCompanies.size > 0) {
-        sites = sites.filter(s => selectedCompanies.has(s.companyName));
+        if (companyMode === 'exclude') {
+          sites = sites.filter(s => !selectedCompanies.has(s.companyName));
+        } else {
+          sites = sites.filter(s => selectedCompanies.has(s.companyName));
+        }
       }
 
       // Apply segment filter (check both Voltera and customer segments)
@@ -380,7 +385,7 @@ export function MSACompetitorLayer({ regions, visible, selectedCategories, selec
       filtered.set(msaName, { ...summary, sites, companies, categories, siteCount: sites.length });
     }
     return filtered;
-  }, [summaries, selectedCategories, selectedCompanies, selectedSegments, hasFilters]);
+  }, [summaries, selectedCategories, selectedCompanies, companyMode, selectedSegments, hasFilters]);
 
   // Match MSA regions to competitor summaries by name
   const matchedMSAs = useMemo(() => {
