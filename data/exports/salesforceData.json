@@ -111,8 +111,8 @@
       "opportunityCount": 2,
       "siteCount": 30
     },
-    "Nashville-Davidson\u2013Murfreesboro\u2013Franklin, TN": {
-      "msa": "Nashville-Davidson\u2013Murfreesboro\u2013Franklin, TN",
+    "Nashville-Davidson-Murfreesboro-Franklin, TN": {
+      "msa": "Nashville-Davidson-Murfreesboro-Franklin, TN",
       "accounts": [
         "Thesis Place Holder - Class 1-3 (AV/Rideshare/Rental)"
       ],
@@ -242,8 +242,8 @@
       "opportunityCount": 0,
       "siteCount": 1
     },
-    "Detroit\u2013Warren\u2013Dearborn, MI": {
-      "msa": "Detroit\u2013Warren\u2013Dearborn, MI",
+    "Detroit-Warren-Dearborn, MI": {
+      "msa": "Detroit-Warren-Dearborn, MI",
       "accounts": [],
       "accountCount": 0,
       "opportunityCount": 0,
@@ -256,5 +256,5 @@
     "pipelineSites": 931,
     "msaCount": 27
   },
-  "lastUpdated": "2026-02-20T19:25:49.006456+00:00"
+  "lastUpdated": "2026-02-23T07:35:11.554424+00:00"
 }

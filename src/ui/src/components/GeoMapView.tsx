@@ -90,10 +90,6 @@ interface GeoMapViewProps {
   // Market Intelligence layer
   competitorSites?: CompetitorSite[];
   showCompetitorLayer?: boolean;
-  competitorCategories?: Set<string>;
-  competitorCompanies?: Set<string>;
-  competitorCompanyMode?: 'include' | 'exclude';
-  competitorSegments?: Set<string>;
 }
 
 /**
@@ -265,10 +261,6 @@ export function GeoMapView({
   onToggleLasso,
   competitorSites = [],
   showCompetitorLayer = false,
-  competitorCategories,
-  competitorCompanies,
-  competitorCompanyMode = 'include',
-  competitorSegments,
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
   lassoEnabledRef.current = lassoEnabled;
@@ -449,7 +441,7 @@ export function GeoMapView({
         {/* Handle map resize when container size changes */}
         <MapResizeHandler />
 
-        {/* Market Intelligence / Competitor layer - color pins for County/Tract */}
+        {/* Market Intelligence / Competitor layer - dots at County/Tract only */}
         {geoLevel !== 'MSA' && (
           <CompetitorMapLayer sites={competitorSites} visible={showCompetitorLayer} />
         )}
@@ -458,11 +450,8 @@ export function GeoMapView({
         {geoLevel === 'MSA' && (
           <MSACompetitorLayer
             regions={regions}
+            sites={competitorSites}
             visible={showCompetitorLayer}
-            selectedCategories={competitorCategories}
-            selectedCompanies={competitorCompanies}
-            companyMode={competitorCompanyMode}
-            selectedSegments={competitorSegments}
           />
         )}
       </MapContainer>

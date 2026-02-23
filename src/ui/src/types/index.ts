@@ -117,6 +117,23 @@ export interface CompetitorSite {
   targetGoLive: string;
   notes: string;
   source: string;
+  // Salesforce-enriched: site details
+  opportunityName: string;
+  ahj: string;
+  rePriceTotal: number | null;
+  evChargingStallCount: number | null;
+  utility: string;
+  // Salesforce-enriched: deal terms
+  initialInspectionPeriod: number | null;
+  initialEarnestMoney: number | null;
+  // Salesforce-enriched: key dates
+  psaLeaseSignature: string;
+  inspectionPeriodStart: string;
+  inspectionPeriodEnd: string;
+  initialClosingDate: string;
+  ipExtensionEndDate: string;
+  ipExtensionOptionDetails: string;
+  outsideClosingDate: string;
 }
 
 export interface CompetitorFilters {

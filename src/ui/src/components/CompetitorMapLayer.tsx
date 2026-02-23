@@ -9,61 +9,46 @@ interface CompetitorMapLayerProps {
   visible: boolean;
 }
 
-function CompetitorMarker({ site }: { site: CompetitorSite }) {
-  const map = useMap();
-
-  if (site.lat === null || site.lng === null) return null;
-
-  const color = getCategoryColor(site.category);
+function SiteTooltip({ site }: { site: CompetitorSite }) {
   const location = [site.city, site.state].filter(Boolean).join(', ');
+  return (
+    <div className="text-[11px] leading-tight">
+      <p className="font-semibold">{site.opportunityName || site.companyName}</p>
+      {site.opportunityName && <p className="text-gray-500">{site.companyName}</p>}
+      <p className="text-gray-500">{site.category}{site.status ? ` · ${site.status}` : ''}</p>
+      {location && <p className="text-gray-400">{location}</p>}
+    </div>
+  );
+}
 
+function SitePopup({ site }: { site: CompetitorSite }) {
+  const map = useMap();
+  return (
+    <Popup closeButton={false} autoPan={false} className="competitor-popup" maxWidth={280} minWidth={260}>
+      <CompetitorDetailCard site={site} onClose={() => map.closePopup()} />
+    </Popup>
+  );
+}
+
+/** Renders a single site as a colored circle pin. */
+function DotMarker({ site }: { site: CompetitorSite }) {
+  const color = getCategoryColor(site.category);
   return (
     <CircleMarker
-      center={[site.lat, site.lng]}
+      center={[site.lat!, site.lng!]}
       radius={7}
       pane="markerPane"
-      pathOptions={{
-        fillColor: color,
-        fillOpacity: 0.9,
-        color: '#ffffff',
-        weight: 2,
-        opacity: 1,
-      }}
+      pathOptions={{ fillColor: color, fillOpacity: 0.9, color: '#ffffff', weight: 2, opacity: 1 }}
       eventHandlers={{
-        click: (e) => {
-          L.DomEvent.stopPropagation(e);
-        },
-        mouseover: (e) => {
-          e.target.setStyle({ radius: 10, weight: 3 });
-        },
-        mouseout: (e) => {
-          e.target.setStyle({ radius: 7, weight: 2 });
-        },
+        click: (e) => L.DomEvent.stopPropagation(e),
+        mouseover: (e) => e.target.setStyle({ radius: 10, weight: 3 }),
+        mouseout: (e) => e.target.setStyle({ radius: 7, weight: 2 }),
       }}
     >
-      {/* Hover tooltip — bare minimum */}
-      <Tooltip
-        direction="top"
-        offset={[0, -8]}
-        className="competitor-tooltip"
-      >
-        <div className="text-[11px] leading-tight">
-          <p className="font-semibold">{site.companyName}</p>
-          <p className="text-gray-500">{site.category}{site.status ? ` · ${site.status}` : ''}</p>
-          {location && <p className="text-gray-400">{location}</p>}
-        </div>
+      <Tooltip direction="top" offset={[0, -8]} className="competitor-tooltip">
+        <SiteTooltip site={site} />
       </Tooltip>
-
-      {/* Click popup — compact detail card */}
-      <Popup
-        closeButton={false}
-        autoPan={false}
-        className="competitor-popup"
-        maxWidth={240}
-        minWidth={220}
-      >
-        <CompetitorDetailCard site={site} onClose={() => map.closePopup()} />
-      </Popup>
+      <SitePopup site={site} />
     </CircleMarker>
   );
 }
@@ -76,7 +61,7 @@ export function CompetitorMapLayer({ sites, visible }: CompetitorMapLayerProps) 
   return (
     <>
       {sitesWithCoords.map(site => (
-        <CompetitorMarker key={site.id} site={site} />
+        <DotMarker key={site.id} site={site} />
       ))}
     </>
   );

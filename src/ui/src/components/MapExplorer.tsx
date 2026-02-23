@@ -12,6 +12,7 @@ import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDem
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
 import { getCompetitorSites, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
 import { loadSalesforceData } from '../dataLoader/salesforceLoader';
+import { msaNamesMatch, isNearCoordinates } from '../utils/msaMatch';
 
 /**
  * Handles multi-select toggle logic for a list of regions.
@@ -136,15 +137,14 @@ export function MapExplorer() {
   // selected MSA ensures pins match the logos shown in the MSA view.
   const msaCompetitorSites = useMemo(() => {
     if (!selectedMSA) return [];
-    const msaName = selectedMSA.name.toLowerCase().trim();
-    // Strip state suffix (after comma) so "Los Angeles-Long Beach-Anaheim, CA"
-    // matches "Los Angeles-Long Beach-Anaheim" in the competitor data.
-    const msaBase = msaName.split(',')[0].trim();
     return competitorSites.filter(s => {
-      if (!s.msa) return false;
-      const siteMsa = s.msa.toLowerCase().trim();
-      const siteBase = siteMsa.split(',')[0].trim();
-      return siteMsa === msaName || siteBase === msaBase;
+      // Fuzzy match on MSA name
+      if (s.msa && msaNamesMatch(s.msa, selectedMSA.name)) return true;
+      // Fallback: include sites without MSA but near the selected MSA centroid
+      if (!s.msa && s.lat != null && s.lng != null) {
+        return isNearCoordinates(s.lat, s.lng, selectedMSA.lat, selectedMSA.lng);
+      }
+      return false;
     });
   }, [competitorSites, selectedMSA?.id]);
 
@@ -583,10 +583,6 @@ export function MapExplorer() {
             onMapViewChange={setMsaMapView}
             competitorSites={competitorSites}
             showCompetitorLayer={showCompetitorLayer}
-            competitorCategories={competitorCategories}
-            competitorCompanies={competitorCompanies}
-            competitorCompanyMode={competitorCompanyMode}
-            competitorSegments={competitorSegments}
           />
 
           {/* County Panel */}
@@ -609,10 +605,6 @@ export function MapExplorer() {
             onMapViewChange={setCountyMapView}
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
-            competitorCategories={competitorCategories}
-            competitorCompanies={competitorCompanies}
-            competitorCompanyMode={competitorCompanyMode}
-            competitorSegments={competitorSegments}
           />
 
           {/* Tract Panel */}
@@ -635,10 +627,6 @@ export function MapExplorer() {
             onMapViewChange={setTractMapView}
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
-            competitorCategories={competitorCategories}
-            competitorCompanies={competitorCompanies}
-            competitorCompanyMode={competitorCompanyMode}
-            competitorSegments={competitorSegments}
           />
         </div>
 

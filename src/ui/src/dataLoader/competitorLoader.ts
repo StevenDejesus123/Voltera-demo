@@ -43,22 +43,12 @@ export function getCompetitorSites(): CompetitorSite[] {
   return cache?.sites ?? [];
 }
 
-/** Get competitor sites with valid coordinates for mapping. */
-export function getCompetitorSitesWithCoords(): CompetitorSite[] {
-  return getCompetitorSites().filter(s => s.lat !== null && s.lng !== null);
-}
-
 /** Get filter options (companies, categories, etc.). */
 export function getCompetitorFilters(): CompetitorFilters | null {
   if (!cache && !loading) {
     loadData();
   }
   return cache?.filters ?? null;
-}
-
-/** Get unique companies from the data. */
-export function getCompetitorCompanies(): string[] {
-  return cache?.filters?.companies ?? [];
 }
 
 /**
@@ -96,11 +86,6 @@ export function getCompetitorSegments(): string[] {
 /** Get stats about the competitor data. */
 export function getCompetitorStats(): { totalSites: number; sitesWithCoords: number; companiesCount: number } | null {
   return cache?.stats ?? null;
-}
-
-/** Check if data is currently loading. */
-export function isCompetitorDataLoading(): boolean {
-  return loading;
 }
 
 /** Trigger data load (no-op if already loaded/loading). */
@@ -168,6 +153,65 @@ export function getCategoryColor(category: string): string {
   }
 }
 
+/** Company name → logo path mapping for map markers. */
+export const COMPANY_LOGOS: Record<string, string> = {
+  'AlphaStruxure': '/logos/alphastruxure.png',
+  'Alto': '/logos/alto.png',
+  'Amazon': '/logos/amazon.png',
+  'Avis': '/logos/avis.png',
+  'Catalyst': '/logos/catalyst.png',
+  'Cruise': '/logos/cruise.png',
+  'Einride': '/logos/einride.png',
+  'Electrify America & 4Gen Logistics': '/logos/electrify-america.png',
+  'EV Realty': '/logos/evrealty.jpeg',
+  'EVgo': '/logos/evgo.png',
+  'Fortress Investment Group': '/logos/fortress.png',
+  'Forum Mobility': '/logos/forum-mobility.png',
+  'Gage Zero': '/logos/gage-zero.png',
+  'Greenlane': '/logos/greenlane.png',
+  'Ionna': '/logos/ionna.png',
+  'Maersk': '/logos/maersk.png',
+  'Mercedes-Benz': '/logos/mercedes-benz.png',
+  'Moove': '/logos/moove.png',
+  'Moove.io': '/logos/moove.png',
+  'Motional': '/logos/motional.png',
+  'Nikola': '/logos/nikola.png',
+  'Prologis': '/logos/prologis.png',
+  'Revel': '/logos/revel.png',
+  'Terawatt': '/logos/terawatt.png',
+  'Tesla Semi': '/logos/tesla.png',
+  'Uber': '/logos/uber.png',
+  'Voltera': '/logos/voltera.png',
+  'Volvo': '/logos/volvo.png',
+  'WattEV': '/logos/wattev.png',
+  'Waymo': '/logos/waymo.png',
+  'WeDriveU': '/logos/wedriveu.png',
+  'Zeem': '/logos/zeem.png',
+  'Zoox': '/logos/zoox.png',
+};
+
+/** Get initials from company name. */
+export function getCompanyInitials(name: string): string {
+  const words = name.trim().split(/\s+/);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
+/** Get a consistent color for a company based on its name. */
+export function getCompanyColor(name: string): string {
+  const colors = [
+    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+    '#EC4899', '#06B6D4', '#F97316', '#6366F1', '#14B8A6',
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
 /** Invalidate cache so next access re-fetches. */
 export function invalidateCompetitorCache(): void {
   cache = null;
@@ -182,41 +226,6 @@ export function reloadCompetitorData(): void {
   doFetch();
 }
 
-/** Get sites grouped by company for toggle panel. */
-export function getSitesByCompany(): Map<string, CompetitorSite[]> {
-  const sites = getCompetitorSites();
-  const byCompany = new Map<string, CompetitorSite[]>();
-
-  for (const site of sites) {
-    const existing = byCompany.get(site.companyName) ?? [];
-    existing.push(site);
-    byCompany.set(site.companyName, existing);
-  }
-
-  return byCompany;
-}
-
-/** Get sites grouped by MSA for logo overlay. */
-export function getSitesByMSA(): Map<string, CompetitorSite[]> {
-  const sites = getCompetitorSites();
-  const byMSA = new Map<string, CompetitorSite[]>();
-
-  for (const site of sites) {
-    if (!site.msa) continue;
-    const existing = byMSA.get(site.msa) ?? [];
-    existing.push(site);
-    byMSA.set(site.msa, existing);
-  }
-
-  return byMSA;
-}
-
-/** Get unique companies present in an MSA. */
-export function getCompaniesInMSA(msa: string): string[] {
-  const sites = getCompetitorSites().filter(s => s.msa === msa);
-  return [...new Set(sites.map(s => s.companyName))];
-}
-
 /** Competitor summary for an MSA (categories, counts, companies). */
 export interface MSACompetitorSummary {
   msa: string;
@@ -224,24 +233,4 @@ export interface MSACompetitorSummary {
   companies: string[];
   siteCount: number;
   sites: CompetitorSite[];
-}
-
-/** Get competitor summary for each MSA. */
-export function getMSACompetitorSummaries(): Map<string, MSACompetitorSummary> {
-  const byMSA = getSitesByMSA();
-  const summaries = new Map<string, MSACompetitorSummary>();
-
-  for (const [msa, sites] of byMSA) {
-    const categories = [...new Set(sites.map(s => s.category))];
-    const companies = [...new Set(sites.map(s => s.companyName))];
-    summaries.set(msa, {
-      msa,
-      categories,
-      companies,
-      siteCount: sites.length,
-      sites,
-    });
-  }
-
-  return summaries;
 }

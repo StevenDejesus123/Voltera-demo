@@ -1,75 +1,76 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
-import type { Region } from '../types';
-import { getMSACompetitorSummaries, getCategoryColor, normalizeSegmentName, type MSACompetitorSummary, loadCompetitorData } from '../dataLoader/competitorLoader';
-import { getSalesforceMSASummaries, loadSalesforceData } from '../dataLoader/salesforceLoader';
+import type { Region, CompetitorSite } from '../types';
+import { getCategoryColor, type MSACompetitorSummary, COMPANY_LOGOS, getCompanyInitials, getCompanyColor } from '../dataLoader/competitorLoader';
+import { msaNamesMatch, isNearCoordinates } from '../utils/msaMatch';
 
 interface MSACompetitorLayerProps {
   regions: Region[];
+  sites: CompetitorSite[];
   visible: boolean;
-  selectedCategories?: Set<string>;
-  selectedCompanies?: Set<string>;
-  companyMode?: 'include' | 'exclude';
-  selectedSegments?: Set<string>;
 }
 
-/**
- * Company logo configuration.
- * Maps company names to logo file paths in /logos/ folder.
- */
-const COMPANY_LOGOS: Record<string, string> = {
-  'AlphaStruxure': '/logos/alphastruxure.png',
-  'Alto': '/logos/alto.png',
-  'Cruise': '/logos/cruise.png',
-  'Electrify America & 4Gen Logistics': '/logos/electrify-america.png',
-  'EVgo': '/logos/evgo.png',
-  'Forum Mobility': '/logos/forum-mobility.png',
-  'Greenlane': '/logos/greenlane.png',
-  'Moove': '/logos/moove.png',
-  'Motional': '/logos/motional.png',
-  'Prologis': '/logos/prologis.png',
-  'Revel': '/logos/revel.png',
-  'Terawatt': '/logos/terawatt.png',
-  'Uber': '/logos/uber.png',
-  'WattEV': '/logos/wattev.png',
-  'WattEv': '/logos/wattev.png',
-  'Waymo': '/logos/waymo.png',
-  'Zeem': '/logos/zeem.png',
-  'Zoox': '/logos/zoox.png',
-};
+type RegionMatch = { region: Region; summary: MSACompetitorSummary };
 
-/** Get initials from company name (first 2 letters or first letter of each word) */
-function getCompanyInitials(name: string): string {
-  const words = name.trim().split(/\s+/);
-  if (words.length >= 2) {
-    return (words[0][0] + words[1][0]).toUpperCase();
+/** Build an MSACompetitorSummary from a list of sites, companies sorted by site count descending (TBD always last). */
+function buildSummary(msaName: string, sites: CompetitorSite[]): MSACompetitorSummary {
+  const counts = new Map<string, number>();
+  for (const s of sites) counts.set(s.companyName, (counts.get(s.companyName) ?? 0) + 1);
+  const companies = [...counts.entries()]
+    .sort((a, b) => {
+      // TBD always last
+      if (a[0] === 'TBD') return 1;
+      if (b[0] === 'TBD') return -1;
+      return b[1] - a[1];
+    })
+    .map(([name]) => name);
+
+  return {
+    msa: msaName,
+    categories: [...new Set(sites.map(s => s.category))],
+    companies,
+    siteCount: sites.length,
+    sites,
+  };
+}
+
+/** Merge additional sites into an existing match's summary, re-sorting companies by site count. */
+function mergeSitesInto(match: RegionMatch, extraSites: CompetitorSite[]): void {
+  const allSites = [...match.summary.sites, ...extraSites];
+  match.summary = buildSummary(match.summary.msa, allSites);
+}
+
+/** Create a synthetic Region for sites that don't match any ranked region. */
+function createSyntheticRegion(msaName: string, sites: CompetitorSite[]): Region | null {
+  const withCoords = sites.filter(s => s.lat != null && s.lng != null);
+  if (withCoords.length === 0) return null;
+  const avgLat = withCoords.reduce((sum, s) => sum + s.lat!, 0) / withCoords.length;
+  const avgLng = withCoords.reduce((sum, s) => sum + s.lng!, 0) / withCoords.length;
+  return {
+    id: `competitor-msa-${msaName}`,
+    name: msaName,
+    geoLevel: 'MSA' as const,
+    rank: 0,
+    score: 0,
+    customerCount: 0,
+    inGeofence: false,
+    lat: avgLat,
+    lng: avgLng,
+    factors: [],
+  };
+}
+
+/** Check if a site belongs to a region by MSA name or coordinate proximity. */
+function siteBelongsToRegion(site: CompetitorSite, region: Region): boolean {
+  if (site.msa && msaNamesMatch(site.msa, region.name)) return true;
+  if (!site.msa && site.lat != null && site.lng != null) {
+    return isNearCoordinates(site.lat, site.lng, region.lat, region.lng);
   }
-  return name.substring(0, 2).toUpperCase();
+  return false;
 }
 
-/** Get a consistent color for a company based on its name */
-function getCompanyColor(name: string): string {
-  const colors = [
-    '#3B82F6', // blue
-    '#10B981', // green
-    '#F59E0B', // amber
-    '#EF4444', // red
-    '#8B5CF6', // purple
-    '#EC4899', // pink
-    '#06B6D4', // cyan
-    '#F97316', // orange
-    '#6366F1', // indigo
-    '#14B8A6', // teal
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
-}
-
-/** Creates a custom icon with company logos for MSA markers */
+/** Creates a custom icon with company logos for MSA markers. */
 function createMSALogoIcon(summary: MSACompetitorSummary): L.DivIcon {
   // Get unique companies (limit to 5 for display)
   const companies = summary.companies.slice(0, 5);
@@ -173,14 +174,14 @@ function MSACompetitorMarker({ region, summary }: { region: Region; summary: MSA
 
   if (!region.lat || !region.lng) return null;
 
-  // Group sites by company for popup
+  // Group sites by company for popup, using the same order as the logo bubble (sorted by site count, TBD last)
   const sitesByCompany = new Map<string, number>();
   for (const site of summary.sites) {
     sitesByCompany.set(site.companyName, (sitesByCompany.get(site.companyName) ?? 0) + 1);
   }
-
-  // Sort by site count descending
-  const companiesSorted = [...sitesByCompany.entries()].sort((a, b) => b[1] - a[1]);
+  const companiesSorted = summary.companies
+    .filter(c => sitesByCompany.has(c))
+    .map(c => [c, sitesByCompany.get(c)!] as [string, number]);
 
   return (
     <Marker position={[region.lat, region.lng]} icon={icon}>
@@ -267,141 +268,61 @@ function MSACompetitorMarker({ region, summary }: { region: Region; summary: MSA
   );
 }
 
-/** Check if two names match via case-insensitive substring inclusion. */
-function namesMatch(a: string, b: string): boolean {
-  const aN = a.toLowerCase().trim();
-  const bN = b.toLowerCase().trim();
-  return aN === bN || aN.includes(bN) || bN.includes(aN);
-}
-
-export function MSACompetitorLayer({ regions, visible, selectedCategories, selectedCompanies, companyMode = 'include', selectedSegments }: MSACompetitorLayerProps) {
-  // State to trigger re-render when competitor or SF data loads
-  const [dataLoaded, setDataLoaded] = useState(false);
-  const [sfLoaded, setSfLoaded] = useState(false);
-
-  useEffect(() => {
-    // Trigger load if not already loaded
-    loadCompetitorData();
-    loadSalesforceData();
-
-    // Listen for data load events
-    const handleCompetitorLoaded = () => setDataLoaded(true);
-    const handleSfLoaded = () => setSfLoaded(true);
-    window.addEventListener('competitor:loaded', handleCompetitorLoaded);
-    window.addEventListener('salesforce:loaded', handleSfLoaded);
-
-    return () => {
-      window.removeEventListener('competitor:loaded', handleCompetitorLoaded);
-      window.removeEventListener('salesforce:loaded', handleSfLoaded);
-    };
-  }, []);
-
-  // Merge competitor summaries with SF Sales Opportunity customers
-  const summaries = useMemo(() => {
-    const competitorSummaries = getMSACompetitorSummaries();
-    const sfSummaries = getSalesforceMSASummaries();
-
-    // Merge SF customers into competitor summaries
-    // SF provides customers with Sales Opportunities (no physical site yet)
-    // that don't appear in competitor pins
-    const merged = new Map<string, MSACompetitorSummary>(competitorSummaries);
-
-    for (const [sfMsa, sfData] of Object.entries(sfSummaries)) {
-      // Find matching competitor summary by normalized name
-      let matchKey: string | null = null;
-      for (const [existingMsa] of merged) {
-        if (namesMatch(existingMsa, sfMsa)) {
-          matchKey = existingMsa;
-          break;
-        }
-      }
-
-      if (matchKey) {
-        // Merge SF accounts into existing summary
-        const existing = merged.get(matchKey)!;
-        const mergedCompanies = new Set(existing.companies);
-        for (const account of sfData.accounts) {
-          mergedCompanies.add(account);
-        }
-        merged.set(matchKey, {
-          ...existing,
-          companies: [...mergedCompanies],
-        });
-      } else {
-        // New MSA from SF only (no competitor data)
-        merged.set(sfMsa, {
-          msa: sfMsa,
-          categories: ['Customer'],
-          companies: sfData.accounts,
-          siteCount: sfData.siteCount,
-          sites: [],
-        });
-      }
-    }
-
-    return merged;
-  }, [dataLoaded, sfLoaded]);
-
-  // Check if any filters are active
-  const hasFilters = (selectedCategories?.size ?? 0) > 0 || (selectedCompanies?.size ?? 0) > 0 || (selectedSegments?.size ?? 0) > 0;
-
-  // Apply category/company/segment filters to summaries
-  const filteredSummaries = useMemo(() => {
-    if (!hasFilters) return summaries;
-
-    const filtered = new Map<string, MSACompetitorSummary>();
-    for (const [msaName, summary] of summaries) {
-      let sites = summary.sites;
-
-      // Apply category filter
-      if (selectedCategories && selectedCategories.size > 0) {
-        sites = sites.filter(s => selectedCategories.has(s.category));
-      }
-
-      // Apply company filter: include = show only selected; exclude = hide selected
-      if (selectedCompanies && selectedCompanies.size > 0) {
-        if (companyMode === 'exclude') {
-          sites = sites.filter(s => !selectedCompanies.has(s.companyName));
-        } else {
-          sites = sites.filter(s => selectedCompanies.has(s.companyName));
-        }
-      }
-
-      // Apply segment filter (check both Voltera and customer segments)
-      if (selectedSegments && selectedSegments.size > 0) {
-        sites = sites.filter(s => {
-          const volteraMatch = s.volteraSegment && selectedSegments.has(normalizeSegmentName(s.volteraSegment));
-          const customerMatch = s.customerSegment && selectedSegments.has(normalizeSegmentName(s.customerSegment));
-          return volteraMatch || customerMatch;
-        });
-      }
-
-      // Skip if no sites remain after filtering
-      if (sites.length === 0) continue;
-
-      // Update derived values based on filtered sites
-      const companies = [...new Set(sites.map(s => s.companyName))];
-      const categories = [...new Set(sites.map(s => s.category))];
-      filtered.set(msaName, { ...summary, sites, companies, categories, siteCount: sites.length });
-    }
-    return filtered;
-  }, [summaries, selectedCategories, selectedCompanies, companyMode, selectedSegments, hasFilters]);
-
-  // Match MSA regions to competitor summaries by name
+export function MSACompetitorLayer({ regions, sites, visible }: MSACompetitorLayerProps) {
+  // Build MSA summaries from the same sites array that County/Tract use.
+  //
+  // Pass 1: Match sites to ranked regions by MSA name or coordinate proximity.
+  //   Sites without coords can still match by MSA name (the cluster uses the
+  //   region's centroid, not the site's coordinates).
+  //
+  // Pass 2: Group remaining unmatched sites by MSA name. If the MSA name
+  //   fuzzy-matches an already-matched region, merge into it. Otherwise create
+  //   a synthetic region (requires at least one site with coords for centroid).
   const matchedMSAs = useMemo(() => {
-    const matches: { region: Region; summary: MSACompetitorSummary }[] = [];
+    if (sites.length === 0) return [];
 
+    const matches: RegionMatch[] = [];
+    const assignedSiteIds = new Set<string>();
+
+    // Pass 1: assign sites to ranked regions
     for (const region of regions) {
-      for (const [msaName, summary] of filteredSummaries) {
-        if (namesMatch(region.name, msaName)) {
-          matches.push({ region, summary });
-          break;
-        }
+      if (!region.lat || !region.lng) continue;
+
+      const regionSites = sites.filter(site => {
+        if (assignedSiteIds.has(site.id)) return false;
+        return siteBelongsToRegion(site, region);
+      });
+
+      for (const s of regionSites) assignedSiteIds.add(s.id);
+      if (regionSites.length === 0) continue;
+
+      matches.push({ region, summary: buildSummary(region.name, regionSites) });
+    }
+
+    // Pass 2: handle unmatched sites with MSA info
+    const unmatchedByMSA = new Map<string, CompetitorSite[]>();
+    for (const site of sites) {
+      if (assignedSiteIds.has(site.id) || !site.msa) continue;
+      const arr = unmatchedByMSA.get(site.msa) ?? [];
+      arr.push(site);
+      unmatchedByMSA.set(site.msa, arr);
+    }
+
+    for (const [msaName, msaSites] of unmatchedByMSA) {
+      const existingMatch = matches.find(m => msaNamesMatch(m.region.name, msaName));
+
+      if (existingMatch) {
+        mergeSitesInto(existingMatch, msaSites);
+        continue;
       }
+
+      const syntheticRegion = createSyntheticRegion(msaName, msaSites);
+      if (!syntheticRegion) continue;
+      matches.push({ region: syntheticRegion, summary: buildSummary(msaName, msaSites) });
     }
 
     return matches;
-  }, [regions, filteredSummaries]);
+  }, [sites, regions]);
 
   if (!visible) return null;
 

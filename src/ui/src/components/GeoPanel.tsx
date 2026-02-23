@@ -23,10 +23,6 @@ interface GeoPanelProps {
   // Market Intelligence layer
   competitorSites?: CompetitorSite[];
   showCompetitorLayer?: boolean;
-  competitorCategories?: Set<string>;
-  competitorCompanies?: Set<string>;
-  competitorCompanyMode?: 'include' | 'exclude';
-  competitorSegments?: Set<string>;
 }
 
 type ViewMode = 'map' | 'table';
@@ -68,10 +64,6 @@ export function GeoPanel({
   onMapViewChange,
   competitorSites = [],
   showCompetitorLayer = false,
-  competitorCategories,
-  competitorCompanies,
-  competitorCompanyMode,
-  competitorSegments,
 }: GeoPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [sortField, setSortField] = useState<SortField>('rank');
@@ -307,10 +299,6 @@ export function GeoPanel({
                   onToggleLasso={() => setLassoEnabled(prev => !prev)}
                   competitorSites={competitorSites}
                   showCompetitorLayer={showCompetitorLayer}
-                  competitorCategories={competitorCategories}
-                  competitorCompanies={competitorCompanies}
-                  competitorCompanyMode={competitorCompanyMode}
-                  competitorSegments={competitorSegments}
                 />
                 {isLoading && (
                   <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.35)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
