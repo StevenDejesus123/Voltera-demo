@@ -648,6 +648,11 @@ export function MapExplorer() {
                     } else {
                       setCompetitorSegments(new Set());
                     }
+                    if (view.competitorStatuses) {
+                      setCompetitorStatuses(new Set(view.competitorStatuses));
+                    } else {
+                      setCompetitorStatuses(new Set());
+                    }
 
                     setShowSavedViews(false);
                   }}
@@ -685,6 +690,7 @@ export function MapExplorer() {
                   currentCompetitorCompanyMode={competitorCompanyMode}
                   currentCompetitorCategories={competitorCategories}
                   currentCompetitorSegments={competitorSegments}
+                  currentCompetitorStatuses={competitorStatuses}
                 />
               )}
             </div>

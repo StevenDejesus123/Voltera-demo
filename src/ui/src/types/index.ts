@@ -89,6 +89,7 @@ export interface SavedView {
   competitorCompanyMode?: 'include' | 'exclude';
   competitorCategories?: string[];
   competitorSegments?: string[];
+  competitorStatuses?: string[];
   createdAt: Date;
 }
 

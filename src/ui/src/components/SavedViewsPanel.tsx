@@ -24,6 +24,7 @@ interface SavedViewsPanelProps {
   currentCompetitorCompanyMode?: 'include' | 'exclude';
   currentCompetitorCategories?: Set<string>;
   currentCompetitorSegments?: Set<string>;
+  currentCompetitorStatuses?: Set<string>;
 }
 
 export function SavedViewsPanel({
@@ -43,6 +44,7 @@ export function SavedViewsPanel({
   currentCompetitorCompanyMode,
   currentCompetitorCategories,
   currentCompetitorSegments,
+  currentCompetitorStatuses,
 }: SavedViewsPanelProps) {
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -80,6 +82,7 @@ export function SavedViewsPanel({
       competitorCompanyMode: currentCompetitorCompanyMode,
       competitorCategories: currentCompetitorCategories ? [...currentCompetitorCategories] : undefined,
       competitorSegments: currentCompetitorSegments ? [...currentCompetitorSegments] : undefined,
+      competitorStatuses: currentCompetitorStatuses ? [...currentCompetitorStatuses] : undefined,
     });
 
     setSavedViews(loadSavedViews());
@@ -97,7 +100,8 @@ export function SavedViewsPanel({
   const competitorFiltersCount =
     (currentCompetitorCompanies?.size || 0) +
     (currentCompetitorCategories && currentCompetitorCategories.size > 0 ? 1 : 0) +
-    (currentCompetitorSegments && currentCompetitorSegments.size > 0 ? 1 : 0);
+    (currentCompetitorSegments && currentCompetitorSegments.size > 0 ? 1 : 0) +
+    (currentCompetitorStatuses && currentCompetitorStatuses.size > 0 ? 1 : 0);
 
   // Filter saved views based on search query
   const filteredViews = savedViews.filter(view =>
@@ -236,7 +240,8 @@ export function SavedViewsPanel({
             const viewCompetitorFilters =
               (view.competitorCompanies?.length || 0) +
               (view.competitorCategories && view.competitorCategories.length > 0 ? 1 : 0) +
-              (view.competitorSegments && view.competitorSegments.length > 0 ? 1 : 0);
+              (view.competitorSegments && view.competitorSegments.length > 0 ? 1 : 0) +
+              (view.competitorStatuses && view.competitorStatuses.length > 0 ? 1 : 0);
 
             return (
               <div
