@@ -71,9 +71,24 @@ export interface SavedView {
   id: string;
   name: string;
   description: string;
+  geoLevel: GeoLevel;
   segment: Segment;
   rankingThreshold: number;
   minProbability: number;
+  mapView?: MapViewState;
+  // Drill-down context (which parent was clicked to get to current level)
+  drillDownMSAId?: string;  // If viewing counties or tracts, which MSA was selected
+  drillDownCountyId?: string;  // If viewing tracts, which county was selected
+  // Region selections
+  selectedMSAIds?: string[];
+  selectedCountyIds?: string[];
+  selectedTractIds?: string[];
+  // Competitor tracker filters
+  showCompetitorLayer?: boolean;
+  competitorCompanies?: string[];
+  competitorCompanyMode?: 'include' | 'exclude';
+  competitorCategories?: string[];
+  competitorSegments?: string[];
   createdAt: Date;
 }
 

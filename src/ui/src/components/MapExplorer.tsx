@@ -297,10 +297,10 @@ export function MapExplorer() {
 
   // Auto-collapse region analysis when other right panels open
   useEffect(() => {
-    if (showCompare || showWhatIf || showSavedViews) {
+    if (showCompare || showWhatIf) {
       setRegionAnalysisCollapsed(true);
     }
-  }, [showCompare, showWhatIf, showSavedViews]);
+  }, [showCompare, showWhatIf]);
 
   // Lazy-load Tract data + per-county polygons when a County is first selected
   useEffect(() => {
@@ -460,7 +460,7 @@ export function MapExplorer() {
         isLoadingDetails={detailsLoading}
         detailsProgress={detailsProgress}
         onClose={handleCloseRegion}
-        onAddToCompare={activeRegion ? () => handleAddToCompare(activeRegion) : undefined}
+        onAddToCompare={undefined} // Disabled - Coming Soon feature
         {...collapseProps}
       />
     );
@@ -506,24 +506,212 @@ export function MapExplorer() {
                 />
               )}
             </div>
-            <button
-              onClick={() => setShowSavedViews(!showSavedViews)}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
-            >
-              Saved Views
-            </button>
-            <button
-              onClick={() => setShowWhatIf(!showWhatIf)}
-              className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors"
-            >
-              Simulation Analysis
-            </button>
-            <button
-              onClick={() => setShowCompare(!showCompare)}
-              className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition-colors"
-            >
-              Compare ({compareRegions.filter(r => r).length})
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowSavedViews(!showSavedViews)}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  showSavedViews
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                }`}
+              >
+                Saved Views
+              </button>
+              {showSavedViews && (
+                <SavedViewsPanel
+                  onClose={() => setShowSavedViews(false)}
+                  onLoadView={(view) => {
+                    // Restore basic filters
+                    setSegment(view.segment);
+                    setRankingThreshold(view.rankingThreshold);
+
+                    // Don't auto-expand panels - user will manually navigate as needed
+                    // Removed: setExpandedPanel(view.geoLevel);
+
+                    // Close region analysis panel temporarily during restoration
+                    // This prevents showing drill-down county/MSA while we restore the actual selections
+                    setRegionAnalysisCollapsed(true);
+
+                    // Clear region selection arrays immediately to prevent stale data from showing
+                    setSelectedCounties([]);
+                    setSelectedTracts([]);
+                    setSelectedTract(null);
+
+                    // Restore map view
+                    if (view.mapView) {
+                      if (view.geoLevel === 'MSA') setMsaMapView(view.mapView);
+                      else if (view.geoLevel === 'County') setCountyMapView(view.mapView);
+                      else if (view.geoLevel === 'Tract') setTractMapView(view.mapView);
+                    }
+
+                    // Restore drill-down context (which parent regions were clicked)
+                    if (view.drillDownMSAId) {
+                      // Find the MSA region object by ID
+                      const allMSAs = getMockRegions('MSA', view.segment, view.rankingThreshold, null, []);
+                      const msa = allMSAs.find(m => m.id === view.drillDownMSAId);
+                      if (msa) {
+                        setSelectedMSA(msa);
+                        loadLevelOnDemand('County');
+                      }
+                    } else {
+                      setSelectedMSA(null);
+                    }
+
+                    if (view.drillDownCountyId && view.drillDownMSAId) {
+                      // Find the County region object by ID
+                      const allCounties = getCountiesForMSA(view.drillDownMSAId, view.segment, view.rankingThreshold, null, []);
+                      const county = allCounties.find(c => c.id === view.drillDownCountyId);
+                      if (county) {
+                        setSelectedCounty(county);
+                        loadLevelOnDemand('Tract');
+                      }
+                    } else {
+                      setSelectedCounty(null);
+                    }
+
+                    // Restore region selections (IDs for map filtering)
+                    setSelectedMSAIds(view.selectedMSAIds || []);
+                    setSelectedCountyIds(view.selectedCountyIds || []);
+                    setSelectedTractIds(view.selectedTractIds || []);
+
+                    // Restore region selections (Region objects for analysis panel)
+                    // Need to find actual Region objects from saved IDs
+                    // Use setTimeout to allow data to load first (longer delay for tracts on first load)
+                    if (view.selectedTractIds && view.selectedTractIds.length > 0 && view.drillDownCountyId && view.drillDownMSAId) {
+                      // Restore tract selections for region analysis
+                      // Increased timeout to 1200ms to ensure tract data is loaded on first visit
+                      setTimeout(() => {
+                        const allTracts = getTractsForCounties([view.drillDownCountyId!], view.segment, view.rankingThreshold, null, []);
+                        const tractsToSelect = allTracts.filter(t => view.selectedTractIds!.includes(t.id));
+                        if (tractsToSelect.length > 0) {
+                          if (tractsToSelect.length === 1) {
+                            // Single tract: set singular state for proper region analysis
+                            setSelectedTract(tractsToSelect[0]);
+                            setSelectedTracts([]);
+                          } else {
+                            // Multiple tracts: set plural state
+                            setSelectedTracts(tractsToSelect);
+                            setSelectedTract(null);
+                          }
+                          setRegionAnalysisCollapsed(false);
+                        }
+                      }, 1200);
+                    } else if (view.selectedCountyIds && view.selectedCountyIds.length > 0 && view.drillDownMSAId) {
+                      // Restore county selections for region analysis
+                      // Increased timeout to ensure county data is loaded
+                      setTimeout(() => {
+                        const allCounties = getCountiesForMSA(view.drillDownMSAId!, view.segment, view.rankingThreshold, null, []);
+                        const countiesToSelect = allCounties.filter(c => view.selectedCountyIds!.includes(c.id));
+                        if (countiesToSelect.length > 0) {
+                          setSelectedCounties(countiesToSelect);
+                          setRegionAnalysisCollapsed(false);
+                        }
+                      }, 1000);
+                    } else if (view.selectedMSAIds && view.selectedMSAIds.length > 0) {
+                      // Restore MSA selections for region analysis (no drill-down needed)
+                      const allMSAs = getMockRegions('MSA', view.segment, view.rankingThreshold, null, []);
+                      const msasToSelect = allMSAs.filter(m => view.selectedMSAIds!.includes(m.id));
+                      if (msasToSelect.length > 0) {
+                        // For MSAs, we use selectedCounties array (it's a bit confusing but that's the current structure)
+                        setSelectedCounties(msasToSelect);
+                        setRegionAnalysisCollapsed(false);
+                      }
+                    }
+
+                    // Restore competitor tracker state
+                    if (view.showCompetitorLayer !== undefined) {
+                      setShowCompetitorLayer(view.showCompetitorLayer);
+                    }
+                    if (view.competitorCompanies) {
+                      const companiesSet = new Set(view.competitorCompanies);
+                      if (view.competitorCompanyMode === 'include') {
+                        setCompetitorIncludeCompanies(companiesSet);
+                        setCompetitorExcludeCompanies(new Set());
+                      } else {
+                        setCompetitorExcludeCompanies(companiesSet);
+                        setCompetitorIncludeCompanies(new Set());
+                      }
+                    } else {
+                      setCompetitorIncludeCompanies(new Set());
+                      setCompetitorExcludeCompanies(new Set());
+                    }
+                    if (view.competitorCompanyMode) {
+                      setCompetitorCompanyMode(view.competitorCompanyMode);
+                    }
+                    if (view.competitorCategories) {
+                      setCompetitorCategories(new Set(view.competitorCategories));
+                    } else {
+                      setCompetitorCategories(new Set());
+                    }
+                    if (view.competitorSegments) {
+                      setCompetitorSegments(new Set(view.competitorSegments));
+                    } else {
+                      setCompetitorSegments(new Set());
+                    }
+
+                    setShowSavedViews(false);
+                  }}
+                  // Current state for saving
+                  currentGeoLevel={expandedPanel || 'MSA'}
+                  currentSegment={segment}
+                  currentRankingThreshold={rankingThreshold}
+                  currentMapView={
+                    expandedPanel === 'MSA' ? (msaMapView || undefined) :
+                    expandedPanel === 'County' ? (countyMapView || undefined) :
+                    expandedPanel === 'Tract' ? (tractMapView || undefined) :
+                    undefined
+                  }
+                  currentDrillDownMSAId={selectedMSA?.id}
+                  currentDrillDownCountyId={selectedCounty?.id}
+                  currentSelectedMSAIds={
+                    selectedCounties.filter(r => r.geoLevel === 'MSA').map(r => r.id).length > 0
+                      ? selectedCounties.filter(r => r.geoLevel === 'MSA').map(r => r.id)
+                      : selectedMSAIds
+                  }
+                  currentSelectedCountyIds={
+                    selectedCounties.filter(r => r.geoLevel === 'County').map(r => r.id).length > 0
+                      ? selectedCounties.filter(r => r.geoLevel === 'County').map(r => r.id)
+                      : selectedCountyIds
+                  }
+                  currentSelectedTractIds={
+                    selectedTracts.length > 0
+                      ? selectedTracts.map(r => r.id)
+                      : selectedTract
+                        ? [selectedTract.id]
+                        : selectedTractIds
+                  }
+                  currentShowCompetitorLayer={showCompetitorLayer}
+                  currentCompetitorCompanies={competitorCompanies}
+                  currentCompetitorCompanyMode={competitorCompanyMode}
+                  currentCompetitorCategories={competitorCategories}
+                  currentCompetitorSegments={competitorSegments}
+                />
+              )}
+            </div>
+            <div className="relative">
+              <button
+                disabled
+                className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed transition-colors relative"
+                title="Coming Soon"
+              >
+                Simulation Analysis
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-purple-500 text-white text-[10px] font-semibold rounded-full">
+                  Soon
+                </span>
+              </button>
+            </div>
+            <div className="relative">
+              <button
+                disabled
+                className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed transition-colors relative"
+                title="Coming Soon"
+              >
+                Compare ({compareRegions.filter(r => r).length})
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-blue-500 text-white text-[10px] font-semibold rounded-full">
+                  Soon
+                </span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -574,7 +762,7 @@ export function MapExplorer() {
             regions={msas}
             selectedRegion={selectedMSA}
             onSelectRegion={handleSelectMSA}
-            onAddToCompare={handleAddToCompare}
+            onAddToCompare={undefined} // Disabled - Coming Soon feature
             geoLevel="MSA"
             isExpanded={expandedPanel === 'MSA'}
             isMinimized={expandedPanel !== null && expandedPanel !== 'MSA'}
@@ -592,7 +780,7 @@ export function MapExplorer() {
             selectedRegion={selectedCounty}
             selectedRegions={selectedCounties}
             onSelectRegion={handleSelectCounty}
-            onAddToCompare={handleAddToCompare}
+            onAddToCompare={undefined}
             geoLevel="County"
             isLoading={loadingCounties}
             disabled={!selectedMSA}
@@ -614,7 +802,7 @@ export function MapExplorer() {
             selectedRegion={selectedTract}
             selectedRegions={selectedTracts}
             onSelectRegion={handleSelectTract}
-            onAddToCompare={handleAddToCompare}
+            onAddToCompare={undefined}
             geoLevel="Tract"
             isLoading={loadingTracts}
             disabled={!selectedCounty && selectedCounties.length === 0}
@@ -631,17 +819,6 @@ export function MapExplorer() {
         </div>
 
         {/* Right Panels */}
-        {showSavedViews && (
-          <SavedViewsPanel
-            onClose={() => setShowSavedViews(false)}
-            onLoadView={(view) => {
-              setSegment(view.segment);
-              setRankingThreshold(view.rankingThreshold);
-              setShowSavedViews(false);
-            }}
-          />
-        )}
-
         {showWhatIf && (
           <WhatIfPanel
             onClose={() => setShowWhatIf(false)}

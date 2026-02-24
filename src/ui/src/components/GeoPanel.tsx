@@ -9,7 +9,7 @@ interface GeoPanelProps {
   selectedRegion: Region | null;
   selectedRegions?: Region[];
   onSelectRegion: (region: Region, ctrlKey?: boolean) => void;
-  onAddToCompare: (region: Region) => void;
+  onAddToCompare?: (region: Region) => void;
   geoLevel: GeoLevel;
   disabled?: boolean;
   isExpanded: boolean;
@@ -265,13 +265,15 @@ export function GeoPanel({
                                 >
                                   <Eye className="w-3.5 h-3.5 text-gray-600" />
                                 </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); onAddToCompare(region); }}
-                                  className="p-1 hover:bg-blue-100 rounded transition-colors"
-                                  title="Add to Compare"
-                                >
-                                  <GitCompare className="w-3.5 h-3.5 text-blue-600" />
-                                </button>
+                                {onAddToCompare && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onAddToCompare(region); }}
+                                    className="p-1 hover:bg-blue-100 rounded transition-colors"
+                                    title="Add to Compare"
+                                  >
+                                    <GitCompare className="w-3.5 h-3.5 text-blue-600" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
