@@ -8,7 +8,7 @@
       ],
       "accountCount": 2,
       "opportunityCount": 4,
-      "siteCount": 91
+      "siteCount": 89
     },
     "Austin-Round Rock-Georgetown, TX": {
       "msa": "Austin-Round Rock-Georgetown, TX",
@@ -69,7 +69,7 @@
       ],
       "accountCount": 2,
       "opportunityCount": 4,
-      "siteCount": 139
+      "siteCount": 141
     },
     "Los Angeles-Long Beach-Anaheim, CA": {
       "msa": "Los Angeles-Long Beach-Anaheim, CA",
@@ -99,7 +99,7 @@
       ],
       "accountCount": 3,
       "opportunityCount": 5,
-      "siteCount": 179
+      "siteCount": 177
     },
     "Minneapolis-St. Paul-Bloomington, MN-WI": {
       "msa": "Minneapolis-St. Paul-Bloomington, MN-WI",
@@ -146,7 +146,7 @@
       ],
       "accountCount": 2,
       "opportunityCount": 3,
-      "siteCount": 17
+      "siteCount": 16
     },
     "Phoenix-Mesa-Chandler, AZ": {
       "msa": "Phoenix-Mesa-Chandler, AZ",
@@ -186,12 +186,12 @@
       "opportunityCount": 1,
       "siteCount": 14
     },
-    "Seattle-Tacoma-Bellevue, WA": {
-      "msa": "Seattle-Tacoma-Bellevue, WA",
+    "New York-Newark-Jersey City, NY-NJ-CT-PA": {
+      "msa": "New York-Newark-Jersey City, NY-NJ-CT-PA",
       "accounts": [],
       "accountCount": 0,
       "opportunityCount": 0,
-      "siteCount": 29
+      "siteCount": 4
     },
     "Washington-Arlington-Alexandria, DC-VA-MD-WV": {
       "msa": "Washington-Arlington-Alexandria, DC-VA-MD-WV",
@@ -200,12 +200,12 @@
       "opportunityCount": 0,
       "siteCount": 8
     },
-    "New York-Newark-Jersey City, NY-NJ-CT-PA": {
-      "msa": "New York-Newark-Jersey City, NY-NJ-CT-PA",
+    "Seattle-Tacoma-Bellevue, WA": {
+      "msa": "Seattle-Tacoma-Bellevue, WA",
       "accounts": [],
       "accountCount": 0,
       "opportunityCount": 0,
-      "siteCount": 4
+      "siteCount": 29
     },
     "San Diego-Chula Vista-Carlsbad, CA": {
       "msa": "San Diego-Chula Vista-Carlsbad, CA",
@@ -252,9 +252,9 @@
   },
   "stats": {
     "salesOpportunities": 59,
-    "reOpportunities": 790,
-    "pipelineSites": 931,
+    "reOpportunities": 789,
+    "pipelineSites": 928,
     "msaCount": 27
   },
-  "lastUpdated": "2026-02-23T07:35:11.554424+00:00"
+  "lastUpdated": "2026-02-24T20:15:56.234836+00:00"
 }

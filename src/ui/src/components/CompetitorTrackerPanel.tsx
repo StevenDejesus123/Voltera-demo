@@ -28,7 +28,6 @@ interface CompetitorTrackerPanelProps {
   onCategoriesChange: (categories: Set<string>) => void;
   selectedSegments: Set<string>;
   onSegmentsChange: (segments: Set<string>) => void;
-  // Kept for parent compatibility — not used in the popover UI
   selectedStatuses: Set<string>;
   onStatusesChange: (statuses: Set<string>) => void;
   selectedMSAs: Set<string>;
@@ -69,6 +68,8 @@ export function CompetitorTrackerPanel({
   onCategoriesChange,
   selectedSegments,
   onSegmentsChange,
+  selectedStatuses,
+  onStatusesChange,
   showLayer,
   onToggleLayer,
 }: CompetitorTrackerPanelProps) {
@@ -145,6 +146,8 @@ export function CompetitorTrackerPanel({
 
   const availableSegments = useMemo(() => getCompetitorSegments(), [filters]);
 
+  const availableStatuses = useMemo(() => filters?.statuses ?? [], [filters?.statuses]);
+
   const allCompanies = filters?.companies ?? [];
   const companyResults = companyQuery
     ? allCompanies.filter(c =>
@@ -183,6 +186,10 @@ export function CompetitorTrackerPanel({
     return selectedSegments.size === 0 || selectedSegments.has(seg);
   }
 
+  function isStatusActive(status: string): boolean {
+    return selectedStatuses.size === 0 || selectedStatuses.has(status);
+  }
+
   // ── Company selection ──────────────────────────────────────────────────────
   function addCompany(name: string) {
     const next = new Set(selectedCompanies);
@@ -198,7 +205,11 @@ export function CompetitorTrackerPanel({
     onCompaniesChange(next);
   }
 
-  const hasAnyFilter = selectedCompanies.size > 0 || selectedCategories.size > 0 || selectedSegments.size > 0;
+  const hasAnyFilter =
+    selectedCompanies.size > 0 ||
+    selectedCategories.size > 0 ||
+    selectedSegments.size > 0 ||
+    selectedStatuses.size > 0;
 
   return (
     <div
@@ -306,6 +317,31 @@ export function CompetitorTrackerPanel({
         </div>
       )}
 
+      {/* ── Stage/Status toggles ─────────────────────────────────────────── */}
+      {availableStatuses.length > 0 && (
+        <div className="px-5 pb-3">
+          <p className="text-xs text-gray-500 font-medium mb-2">Stage</p>
+          <div className="flex flex-wrap gap-2">
+            {availableStatuses.map(status => {
+              const active = isStatusActive(status);
+              return (
+                <button
+                  key={status}
+                  onClick={() => toggleInSet(selectedStatuses, availableStatuses, status, onStatusesChange)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                    active
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600'
+                  }`}
+                >
+                  {status}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="border-t border-gray-100" />
 
       {/* ── Company filter ──────────────────────────────────────────────── */}
@@ -405,6 +441,7 @@ export function CompetitorTrackerPanel({
               onCompaniesChange(new Set());
               onCategoriesChange(new Set());
               onSegmentsChange(new Set());
+              onStatusesChange(new Set());
             }}
             className="w-full text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors py-1"
           >

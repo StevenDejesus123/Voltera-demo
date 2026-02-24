@@ -605,34 +605,35 @@ export function ExplainabilityPanel({
           </div>
         </div>
 
-        {/* Customer Count — SF data is per-MSA only */}
+        {/* SF Customer Count + Geofence Status — MSA-level only */}
         {singleRegion.geoLevel?.toUpperCase() === 'MSA' && (
-          <SalesforceCustomerCount region={singleRegion} />
-        )}
+          <>
+            <SalesforceCustomerCount region={singleRegion} />
 
-        {/* Geofence Status */}
-        <div className={`flex items-center gap-3 p-4 rounded-lg border ${singleRegion.inGeofence
-          ? 'bg-purple-50 border-purple-200'
-          : 'bg-gray-50 border-gray-200'
-        }`}>
-          {singleRegion.inGeofence ? (
-            <>
-              <CheckCircle2 className="w-5 h-5 text-purple-600" />
-              <div>
-                <p className="text-sm font-medium text-purple-900">Inside Customer Interest Zone</p>
-                <p className="text-xs text-purple-700">Priority expansion area</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <AlertCircle className="w-5 h-5 text-gray-400" />
-              <div>
-                <p className="text-sm font-medium text-gray-700">Outside Customer Interest Zone</p>
-                <p className="text-xs text-gray-500">Consider for future targeting</p>
-              </div>
-            </>
-          )}
-        </div>
+            <div className={`flex items-center gap-3 p-4 rounded-lg border ${singleRegion.inGeofence
+              ? 'bg-purple-50 border-purple-200'
+              : 'bg-gray-50 border-gray-200'
+            }`}>
+              {singleRegion.inGeofence ? (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <p className="text-sm font-medium text-purple-900">Inside Customer Interest Zone</p>
+                    <p className="text-xs text-purple-700">Priority expansion area</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-5 h-5 text-gray-400" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Outside Customer Interest Zone</p>
+                    <p className="text-xs text-gray-500">Consider for future targeting</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Detail Sections */}
         {isLoadingDetails ? (
