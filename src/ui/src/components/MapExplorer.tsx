@@ -196,16 +196,17 @@ export function MapExplorer() {
   }, [selectedTract, selectedCounty, selectedMSA, selectedCounties.length, selectedTracts.length]);
 
   // Trigger details sidecar load when multi-select activates (lasso won't hit the single-region effect)
+  // Tracts take priority (deeper drill-down) to match multi-region render order
   useEffect(() => {
-    if (selectedCounties.length > 1) {
-      loadDetailsOnDemand(selectedCounties[0].geoLevel);
-      if (!getRegionDetails(selectedCounties[0].id, selectedCounties[0].geoLevel)) {
+    if (selectedTracts.length > 1) {
+      loadDetailsOnDemand(selectedTracts[0].geoLevel);
+      if (!getRegionDetails(selectedTracts[0].id, selectedTracts[0].geoLevel)) {
         setDetailsLoading(true);
         setDetailsProgress(0);
       }
-    } else if (selectedTracts.length > 1) {
-      loadDetailsOnDemand(selectedTracts[0].geoLevel);
-      if (!getRegionDetails(selectedTracts[0].id, selectedTracts[0].geoLevel)) {
+    } else if (selectedCounties.length > 1) {
+      loadDetailsOnDemand(selectedCounties[0].geoLevel);
+      if (!getRegionDetails(selectedCounties[0].id, selectedCounties[0].geoLevel)) {
         setDetailsLoading(true);
         setDetailsProgress(0);
       }
@@ -406,12 +407,12 @@ export function MapExplorer() {
       onToggleCollapse: () => setRegionAnalysisCollapsed(prev => !prev),
     };
 
-    // Multi-region mode (lasso or ctrl+click)
+    // Multi-region mode (lasso or ctrl+click) — tracts take priority (deeper drill-down)
     let multiRegions: Region[] = [];
-    if (selectedCounties.length > 1) {
-      multiRegions = selectedCounties;
-    } else if (selectedTracts.length > 1) {
+    if (selectedTracts.length > 1) {
       multiRegions = selectedTracts;
+    } else if (selectedCounties.length > 1) {
+      multiRegions = selectedCounties;
     }
 
     if (multiRegions.length > 1) {

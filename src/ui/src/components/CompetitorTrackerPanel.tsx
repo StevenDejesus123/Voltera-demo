@@ -40,6 +40,19 @@ interface CompetitorTrackerPanelProps {
 
 const CATEGORY_ORDER = ['Customer', 'Competitor', 'Voltera'];
 
+// Display order for RE stage filter buttons.
+// Must stay in sync with _ACTIVE_RE_STAGES in export_salesforce.py.
+const STAGE_ORDER = [
+  'Market Search',
+  'Short List',
+  'LOI Negotiation',
+  'PSA/Lease Negotiation',
+  'Inspection Period',
+  'Unsolicited Offer Sent',
+  'Off Market Target',
+  'Closed Won',
+] as const;
+
 function formatTimeAgo(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
   const minutes = Math.floor(diff / 60_000);
@@ -146,7 +159,10 @@ export function CompetitorTrackerPanel({
 
   const availableSegments = useMemo(() => getCompetitorSegments(), [filters]);
 
-  const availableStatuses = useMemo(() => filters?.statuses ?? [], [filters?.statuses]);
+  const availableStatuses = useMemo(() => {
+    const raw = filters?.statuses ?? [];
+    return STAGE_ORDER.filter(s => raw.includes(s));
+  }, [filters?.statuses]);
 
   const allCompanies = filters?.companies ?? [];
   const companyResults = companyQuery
