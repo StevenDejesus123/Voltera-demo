@@ -411,7 +411,7 @@ export function MapExplorer() {
     let multiRegions: Region[] = [];
     if (selectedTracts.length > 1) {
       multiRegions = selectedTracts;
-    } else if (selectedCounties.length > 1) {
+    } else if (selectedCounties.length > 1 && !selectedTract && selectedTracts.length === 0) {
       multiRegions = selectedCounties;
     }
 
@@ -437,7 +437,7 @@ export function MapExplorer() {
     }
 
     // Single-region or empty mode
-    const activeRegion = selectedTract || selectedCounty || selectedMSA;
+    const activeRegion = selectedTract || (selectedTracts.length === 1 ? selectedTracts[0] : null) || selectedCounty || (selectedCounties.length === 1 ? selectedCounties[0] : null) || selectedMSA;
 
     const regionWithDetails = activeRegion
       ? {

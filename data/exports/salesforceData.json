@@ -59,7 +59,7 @@
       ],
       "accountCount": 2,
       "opportunityCount": 2,
-      "siteCount": 69
+      "siteCount": 67
     },
     "Las Vegas-Henderson-Paradise, NV": {
       "msa": "Las Vegas-Henderson-Paradise, NV",
@@ -68,8 +68,8 @@
         "Zoox"
       ],
       "accountCount": 2,
-      "opportunityCount": 4,
-      "siteCount": 141
+      "opportunityCount": 5,
+      "siteCount": 143
     },
     "Los Angeles-Long Beach-Anaheim, CA": {
       "msa": "Los Angeles-Long Beach-Anaheim, CA",
@@ -99,7 +99,7 @@
       ],
       "accountCount": 3,
       "opportunityCount": 5,
-      "siteCount": 177
+      "siteCount": 182
     },
     "Minneapolis-St. Paul-Bloomington, MN-WI": {
       "msa": "Minneapolis-St. Paul-Bloomington, MN-WI",
@@ -109,7 +109,7 @@
       ],
       "accountCount": 2,
       "opportunityCount": 2,
-      "siteCount": 30
+      "siteCount": 31
     },
     "Nashville-Davidson-Murfreesboro-Franklin, TN": {
       "msa": "Nashville-Davidson-Murfreesboro-Franklin, TN",
@@ -166,7 +166,7 @@
       ],
       "accountCount": 2,
       "opportunityCount": 2,
-      "siteCount": 12
+      "siteCount": 11
     },
     "San Jose-Sunnyvale-Santa Clara, CA": {
       "msa": "San Jose-Sunnyvale-Santa Clara, CA",
@@ -228,13 +228,6 @@
       "opportunityCount": 0,
       "siteCount": 8
     },
-    "Stockton-Lodi, CA": {
-      "msa": "Stockton-Lodi, CA",
-      "accounts": [],
-      "accountCount": 0,
-      "opportunityCount": 0,
-      "siteCount": 5
-    },
     "Salt Lake City, UT": {
       "msa": "Salt Lake City, UT",
       "accounts": [],
@@ -248,13 +241,20 @@
       "accountCount": 0,
       "opportunityCount": 0,
       "siteCount": 1
+    },
+    "Stockton-Lodi, CA": {
+      "msa": "Stockton-Lodi, CA",
+      "accounts": [],
+      "accountCount": 0,
+      "opportunityCount": 0,
+      "siteCount": 1
     }
   },
   "stats": {
-    "salesOpportunities": 59,
-    "reOpportunities": 789,
-    "pipelineSites": 928,
+    "salesOpportunities": 60,
+    "reOpportunities": 787,
+    "pipelineSites": 927,
     "msaCount": 27
   },
-  "lastUpdated": "2026-02-24T20:15:56.234836+00:00"
+  "lastUpdated": "2026-02-27T12:37:43.822319+00:00"
 }
