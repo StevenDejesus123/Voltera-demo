@@ -482,7 +482,7 @@ export function GeoMapView({
                     <div className="flex-shrink-0 rounded-sm" style={{ width: 12, height: 10, backgroundColor: color }} />
                     <span className="text-[9px] text-gray-600 leading-tight whitespace-nowrap">
                       {label}
-                      <span className="text-gray-400 ml-1">{range}</span>
+                      {range && <span className="text-gray-400 ml-1">{range}</span>}
                     </span>
                   </div>
                 ))

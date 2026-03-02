@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Region, GeoLevel, MapViewState, CompetitorSite } from '../types';
-import { MapPin, Table, Map, Eye, GitCompare, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, MoreVertical } from 'lucide-react';
+import { MapPin, Table, Map, Eye, GitCompare, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2 } from 'lucide-react';
 import { GeoMapView } from './GeoMapView';
-import { ColorScale, getColorMode, isRankBased, RANK_LEGEND_ROWS } from '../utils/colorScale';
+import { ColorScale, getColorMode, isRankBased } from '../utils/colorScale';
 
 interface GeoPanelProps {
   title: string;
@@ -30,14 +30,6 @@ type ViewMode = 'map' | 'table';
 type SortField = 'rank' | 'name' | 'score' | 'customerCount';
 type SortDirection = 'asc' | 'desc';
 
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-4 h-3 rounded" style={{ backgroundColor: color }} />
-      <span className="text-gray-600">{label}</span>
-    </div>
-  );
-}
 
 export function GeoPanel({
   title,
@@ -62,7 +54,6 @@ export function GeoPanel({
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [legendOpen, setLegendOpen] = useState(false);
   const [lassoEnabled, setLassoEnabled] = useState(false);
 
   // Dynamic color scale — same computation as GeoMapView, so table bars match the map.
@@ -71,11 +62,10 @@ export function GeoPanel({
     [regions, geoLevel],
   );
 
-  // Reset lasso and legend when switching to table view or when panel has no data
+  // Reset lasso when switching to table view or when panel has no data
   useEffect(() => {
     if (viewMode === 'table' || regions.length === 0) {
       setLassoEnabled(false);
-      setLegendOpen(false);
     }
   }, [viewMode, regions.length]);
 
@@ -312,45 +302,13 @@ export function GeoPanel({
                     </div>
                   </div>
                 )}
-                {/* Legend popup — dynamic 6-band scale matching the map */}
-                {legendOpen && (
-                  <div className="bg-white shadow-lg rounded-lg p-3 border border-gray-200" style={{ position: 'absolute', top: 8, right: 8, zIndex: 1100, minWidth: 176 }}>
-                    <h3 className="text-xs font-semibold text-gray-900">Score Classification</h3>
-                    <p className="text-[10px] text-gray-400 mb-2">
-                      {isRankBased(geoLevel) ? 'Rank-based' : colorScale.mode === 'quantile' ? 'Equal-count' : 'Asymmetric'} · {regions.length} {geoLevel}{regions.length !== 1 ? 's' : ''}
-                    </p>
-                    <div className="space-y-1.5 text-xs">
-                      {isRankBased(geoLevel)
-                        ? RANK_LEGEND_ROWS.map(({ band, color, label, range }) => (
-                            <LegendItem key={band} color={color} label={`${label}  ${range}`} />
-                          ))
-                        : colorScale.getLegendRows().map(({ band, color, label, lo, hi }) => (
-                            <LegendItem
-                              key={band}
-                              color={color}
-                              label={`${label}  ${band === 5 ? `≥${lo}%` : band === 0 ? `<${hi}%` : `${lo}–${hi}%`}`}
-                            />
-                          ))}
-                      <div className="flex items-center gap-2 pt-1.5 border-t border-gray-100">
-                        <div className="w-4 h-3 border-2 border-dashed border-purple-600" />
-                        <span className="text-gray-500">Geofence</span>
-                      </div>
-                      {multiSelectEnabled && (
-                        <div className="flex items-center gap-2">
-                          <div className="w-4 h-3 border-2 border-red-500" />
-                          <span className="text-gray-500">Selected</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
 
           {/* Footer */}
           <div className="bg-gray-50 border-t border-gray-200 px-4 py-2 flex-shrink-0">
-            <div className="flex items-center justify-between">
+            <div>
               <div>
                 <p className="text-xs text-gray-600">
                   {regions.length} {geoLevel}{regions.length !== 1 ? 's' : ''}
@@ -364,13 +322,6 @@ export function GeoPanel({
                   <p className="text-xs text-amber-600 mt-0.5">Lasso active — disable lasso to click-select</p>
                 )}
               </div>
-              <button
-                onClick={() => setLegendOpen(prev => !prev)}
-                className="p-1 rounded hover:bg-gray-200 transition-colors"
-                title={legendOpen ? 'Hide legend' : 'Show legend'}
-              >
-                <MoreVertical className="w-4 h-4 text-gray-500" />
-              </button>
             </div>
           </div>
         </>

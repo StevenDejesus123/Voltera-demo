@@ -60,12 +60,12 @@ const QUANTILE_P = [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6];
 export const RANK_LEGEND_ROWS: ReadonlyArray<{
   band: number; color: string; label: string; range: string;
 }> = [
-  { band: 5, color: BAND_COLORS[5], label: 'Top 5 %',    range: 'top 5 %'     },
-  { band: 4, color: BAND_COLORS[4], label: 'Top 15 %',   range: '5 – 15 %'    },
-  { band: 3, color: BAND_COLORS[3], label: 'Above avg',  range: '15 – 30 %'   },
-  { band: 2, color: BAND_COLORS[2], label: 'Average',    range: '30 – 50 %'   },
-  { band: 1, color: BAND_COLORS[1], label: 'Below avg',  range: '50 – 75 %'   },
-  { band: 0, color: BAND_COLORS[0], label: 'Bottom 25 %', range: 'bottom 25 %' },
+  { band: 5, color: BAND_COLORS[5], label: 'Top 5 %',     range: ''         },
+  { band: 4, color: BAND_COLORS[4], label: 'Top 15 %',    range: '5–15 %'   },
+  { band: 3, color: BAND_COLORS[3], label: 'Above avg',   range: '15–30 %'  },
+  { band: 2, color: BAND_COLORS[2], label: 'Average',     range: '30–50 %'  },
+  { band: 1, color: BAND_COLORS[1], label: 'Below avg',   range: '50–75 %'  },
+  { band: 0, color: BAND_COLORS[0], label: 'Bottom 25 %', range: ''         },
 ];
 
 /** Linear interpolation of a percentile value in a sorted array. */
