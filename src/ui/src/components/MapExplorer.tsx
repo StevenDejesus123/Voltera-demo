@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, Dispatch, SetStateAction } from 'react';
+import { useState, useEffect, useMemo, useRef, Dispatch, SetStateAction } from 'react';
 import { FilterPanel } from './FilterPanel';
 import { GeoPanel } from './GeoPanel';
 import { ExplainabilityPanel } from './ExplainabilityPanel';
@@ -152,8 +152,12 @@ export function MapExplorer() {
   const [selectedRegionDetails, setSelectedRegionDetails] = useState<{ factors: any[]; details: any } | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsProgress, setDetailsProgress] = useState(-1);
-  // Setter-only — incrementing this forces MapExplorer to re-render and re-read the data cache
-  const [, setDataLoadTick] = useState(0);
+  // Incrementing this forces MapExplorer to re-render and re-read the data cache
+  const [dataLoadTick, setDataLoadTick] = useState(0);
+  // Pending tract restoration from saved view — applied in two stages:
+  //   Stage 1 (county data loads): set selectedCounty + trigger tract load
+  //   Stage 2 (tract data loads):  apply selectedTracts / selectedTract
+  const pendingTractRestoration = useRef<{ tractIds: string[]; countyId: string; msaId: string } | null>(null);
 
   // Re-render when County or Tract data arrives from the async fetch
   useEffect(() => {
@@ -161,6 +165,62 @@ export function MapExplorer() {
     window.addEventListener('frontend:regions:updated', handler as EventListener);
     return () => window.removeEventListener('frontend:regions:updated', handler as EventListener);
   }, []);
+
+  // Restore pending tract selection from a saved view.
+  //
+  // Two things must be true before we can apply the selection:
+  //   1. selectedCounty must be the right county
+  //   2. tract data must be in the cache
+  //
+  // On a cold load (F5), county data arrives asynchronously and selectedCounty is
+  // initially null. We resolve the county directly from the cache (effectiveCounty)
+  // so we can fall through to the tract check in the same effect run — this handles
+  // the React 18 batch case where county + tract data both arrive before a re-render,
+  // which would otherwise leave Stage 2 permanently skipped because dataLoadTick
+  // only incremented once and selectedCounty was still null in that render.
+  useEffect(() => {
+    if (!pendingTractRestoration.current) return;
+    const { tractIds, countyId, msaId } = pendingTractRestoration.current;
+
+    // Resolve the county — prefer already-set state, fall back to a direct cache lookup.
+    // We use a local variable so we can fall through to the tract step without waiting
+    // for the setSelectedCounty state update to propagate.
+    //
+    // IMPORTANT: use the reranked county (rank = 1..N within the MSA) rather than the raw
+    // cache county (global rank). The [countyRange] effect checks selectedCounty.rank against
+    // countyRange = [1, N]; if we use the global rank it may fall outside [1, N] and be cleared.
+    let effectiveCounty = selectedCounty?.id === countyId ? selectedCounty : null;
+    if (!effectiveCounty) {
+      const allCounties = getCountiesForMSA(msaId, segment, rankingThreshold, null, []);
+      const rawCounty = allCounties.find(c => c.id === countyId);
+      if (!rawCounty) return; // County data not yet loaded — wait for next dataLoadTick
+      const reranked = reRankByOriginalOrder(allCounties);
+      effectiveCounty = reranked.find(c => c.id === countyId) ?? rawCounty;
+      setSelectedCounty(effectiveCounty);
+      loadLevelOnDemand('Tract');
+      loadTractPolygonsForCounty(countyId);
+      // Fall through — if tract data is already in cache (fast / browser-cached load),
+      // apply the selection right now rather than waiting for another dataLoadTick.
+    }
+
+    // County is resolved — apply tract selections if data is ready.
+    const allTracts = getTractsForCounties([countyId], segment, rankingThreshold, null, []);
+    if (allTracts.length === 0) return; // Tract data not yet loaded — wait for next tick
+    const tractsToSelect = allTracts.filter(t => tractIds.includes(t.id));
+    if (tractsToSelect.length > 0) {
+      pendingTractRestoration.current = null;
+      if (tractsToSelect.length === 1) {
+        setSelectedTract(tractsToSelect[0]);
+        setSelectedTracts([]);
+      } else {
+        setSelectedTracts(tractsToSelect);
+        setSelectedTract(null);
+      }
+      setRegionAnalysisCollapsed(false);
+    }
+  // selectedCounty?.id: re-run when county state settles so Stage 2 can proceed
+  // even if county+tract arrived in separate ticks and county was set between them.
+  }, [dataLoadTick, selectedCounty?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track details loading progress and populate selectedRegionDetails when done
   useEffect(() => {
@@ -366,6 +426,7 @@ export function MapExplorer() {
     handleMultiSelectToggle(county, !!ctrlKey, setSelectedCounty, setSelectedCounties);
     setSelectedTract(null);
     setSelectedTracts([]);
+    setSelectedTractIds([]);
     setLoadingTracts(true);
     setTractMapView(null);
   }
@@ -379,6 +440,7 @@ export function MapExplorer() {
     setSelectedCounty(null);
     setSelectedTract(null);
     setSelectedTracts([]);
+    setSelectedTractIds([]);
     setLoadingTracts(true);
     setTractMapView(null);
   }
@@ -522,6 +584,9 @@ export function MapExplorer() {
                 <SavedViewsPanel
                   onClose={() => setShowSavedViews(false)}
                   onLoadView={(view) => {
+                    // Cancel any in-flight tract restoration from a previous load
+                    pendingTractRestoration.current = null;
+
                     // Restore basic filters
                     setSegment(view.segment);
                     setRankingThreshold(view.rankingThreshold);
@@ -559,10 +624,14 @@ export function MapExplorer() {
                     }
 
                     if (view.drillDownCountyId && view.drillDownMSAId) {
-                      // Find the County region object by ID
+                      // Find the County region object by ID.
+                      // Use the reranked version so its rank is within countyRange = [1, N],
+                      // preventing the [countyRange] effect from clearing selectedCounty.
                       const allCounties = getCountiesForMSA(view.drillDownMSAId, view.segment, view.rankingThreshold, null, []);
-                      const county = allCounties.find(c => c.id === view.drillDownCountyId);
-                      if (county) {
+                      const rawCounty = allCounties.find(c => c.id === view.drillDownCountyId);
+                      if (rawCounty) {
+                        const reranked = reRankByOriginalOrder(allCounties);
+                        const county = reranked.find(c => c.id === view.drillDownCountyId) ?? rawCounty;
                         setSelectedCounty(county);
                         loadLevelOnDemand('Tract');
                       }
@@ -577,26 +646,28 @@ export function MapExplorer() {
 
                     // Restore region selections (Region objects for analysis panel)
                     // Need to find actual Region objects from saved IDs
-                    // Use setTimeout to allow data to load first (longer delay for tracts on first load)
                     if (view.selectedTractIds && view.selectedTractIds.length > 0 && view.drillDownCountyId && view.drillDownMSAId) {
-                      // Restore tract selections for region analysis
-                      // Increased timeout to 1200ms to ensure tract data is loaded on first visit
-                      setTimeout(() => {
-                        const allTracts = getTractsForCounties([view.drillDownCountyId!], view.segment, view.rankingThreshold, null, []);
-                        const tractsToSelect = allTracts.filter(t => view.selectedTractIds!.includes(t.id));
-                        if (tractsToSelect.length > 0) {
-                          if (tractsToSelect.length === 1) {
-                            // Single tract: set singular state for proper region analysis
-                            setSelectedTract(tractsToSelect[0]);
-                            setSelectedTracts([]);
-                          } else {
-                            // Multiple tracts: set plural state
-                            setSelectedTracts(tractsToSelect);
-                            setSelectedTract(null);
-                          }
-                          setRegionAnalysisCollapsed(false);
+                      // Store pending restoration — the useEffect on dataLoadTick will apply it
+                      // once tract data finishes loading (handles cold load after F5 correctly).
+                      pendingTractRestoration.current = {
+                        tractIds: view.selectedTractIds,
+                        countyId: view.drillDownCountyId,
+                        msaId: view.drillDownMSAId,
+                      };
+                      // Also attempt immediately in case tract data is already cached
+                      const allTracts = getTractsForCounties([view.drillDownCountyId!], view.segment, view.rankingThreshold, null, []);
+                      const tractsToSelect = allTracts.filter(t => view.selectedTractIds!.includes(t.id));
+                      if (tractsToSelect.length > 0) {
+                        pendingTractRestoration.current = null;
+                        if (tractsToSelect.length === 1) {
+                          setSelectedTract(tractsToSelect[0]);
+                          setSelectedTracts([]);
+                        } else {
+                          setSelectedTracts(tractsToSelect);
+                          setSelectedTract(null);
                         }
-                      }, 1200);
+                        setRegionAnalysisCollapsed(false);
+                      }
                     } else if (view.selectedCountyIds && view.selectedCountyIds.length > 0 && view.drillDownMSAId) {
                       // Restore county selections for region analysis
                       // Increased timeout to ensure county data is loaded

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Region, GeoLevel, MapViewState, CompetitorSite } from '../types';
 import { MapPin, Table, Map, Eye, GitCompare, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, MoreVertical } from 'lucide-react';
 import { GeoMapView } from './GeoMapView';
+import { ColorScale, getColorMode, isRankBased, RANK_LEGEND_ROWS } from '../utils/colorScale';
 
 interface GeoPanelProps {
   title: string;
@@ -28,13 +29,6 @@ interface GeoPanelProps {
 type ViewMode = 'map' | 'table';
 type SortField = 'rank' | 'name' | 'score' | 'customerCount';
 type SortDirection = 'asc' | 'desc';
-
-function getScoreColor(score: number) {
-  if (score >= 0.9) return '#10b981';
-  if (score >= 0.8) return '#3b82f6';
-  if (score >= 0.7) return '#f59e0b';
-  return '#ef4444';
-}
 
 function LegendItem({ color, label }: { color: string; label: string }) {
   return (
@@ -70,6 +64,12 @@ export function GeoPanel({
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [legendOpen, setLegendOpen] = useState(false);
   const [lassoEnabled, setLassoEnabled] = useState(false);
+
+  // Dynamic color scale — same computation as GeoMapView, so table bars match the map.
+  const colorScale = useMemo(
+    () => new ColorScale(regions.map(r => r.score), getColorMode(geoLevel)),
+    [regions, geoLevel],
+  );
 
   // Reset lasso and legend when switching to table view or when panel has no data
   useEffect(() => {
@@ -247,7 +247,9 @@ export function GeoPanel({
                                     className="h-1.5 rounded-full"
                                     style={{
                                       width: `${region.score * 100}%`,
-                                      backgroundColor: getScoreColor(region.score),
+                                      backgroundColor: isRankBased(geoLevel)
+                                        ? colorScale.getColorByRank(region.rank, regions.length)
+                                        : colorScale.getColor(region.score),
                                     }}
                                   />
                                 </div>
@@ -310,23 +312,33 @@ export function GeoPanel({
                     </div>
                   </div>
                 )}
-                {/* Legend popup */}
+                {/* Legend popup — dynamic 6-band scale matching the map */}
                 {legendOpen && (
-                  <div className="bg-white shadow-lg rounded-lg p-3 border border-gray-200" style={{ position: 'absolute', top: 8, right: 8, zIndex: 1100 }}>
-                    <h3 className="text-xs font-semibold text-gray-900 mb-2">Score Legend</h3>
+                  <div className="bg-white shadow-lg rounded-lg p-3 border border-gray-200" style={{ position: 'absolute', top: 8, right: 8, zIndex: 1100, minWidth: 176 }}>
+                    <h3 className="text-xs font-semibold text-gray-900">Score Classification</h3>
+                    <p className="text-[10px] text-gray-400 mb-2">
+                      {isRankBased(geoLevel) ? 'Rank-based' : colorScale.mode === 'quantile' ? 'Equal-count' : 'Asymmetric'} · {regions.length} {geoLevel}{regions.length !== 1 ? 's' : ''}
+                    </p>
                     <div className="space-y-1.5 text-xs">
-                      <LegendItem color="#10b981" label="90-100%" />
-                      <LegendItem color="#3b82f6" label="80-89%" />
-                      <LegendItem color="#f59e0b" label="70-79%" />
-                      <LegendItem color="#ef4444" label="< 70%" />
-                      <div className="flex items-center gap-2 pt-1 border-t">
+                      {isRankBased(geoLevel)
+                        ? RANK_LEGEND_ROWS.map(({ band, color, label, range }) => (
+                            <LegendItem key={band} color={color} label={`${label}  ${range}`} />
+                          ))
+                        : colorScale.getLegendRows().map(({ band, color, label, lo, hi }) => (
+                            <LegendItem
+                              key={band}
+                              color={color}
+                              label={`${label}  ${band === 5 ? `≥${lo}%` : band === 0 ? `<${hi}%` : `${lo}–${hi}%`}`}
+                            />
+                          ))}
+                      <div className="flex items-center gap-2 pt-1.5 border-t border-gray-100">
                         <div className="w-4 h-3 border-2 border-dashed border-purple-600" />
-                        <span className="text-gray-600">Geofence</span>
+                        <span className="text-gray-500">Geofence</span>
                       </div>
                       {multiSelectEnabled && (
-                        <div className="flex items-center gap-2 pt-1 border-t">
-                          <div className="w-4 h-3 border-2 border-dashed border-blue-600" />
-                          <span className="text-gray-600">Selected</span>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 border-2 border-red-500" />
+                          <span className="text-gray-500">Selected</span>
                         </div>
                       )}
                     </div>

@@ -9,6 +9,7 @@ import { LassoSelector } from './LassoSelector';
 import { LassoToggleButton } from './LassoToggleButton';
 import { CompetitorMapLayer } from './CompetitorMapLayer';
 import { MSACompetitorLayer } from './MSACompetitorLayer';
+import { ColorScale, getColorMode, isRankBased, RANK_LEGEND_ROWS } from '../utils/colorScale';
 
 const DEFAULT_STYLE: L.PathOptions = {
   fillOpacity: 0.1,
@@ -16,29 +17,6 @@ const DEFAULT_STYLE: L.PathOptions = {
   opacity: 0.1,
   weight: 1,
 };
-
-const VIRIDIS_COLORS = [
-  [68, 1, 84],    // purple
-  [59, 82, 139],  // blue
-  [33, 145, 140], // teal
-  [94, 201, 98],  // green
-  [253, 231, 37], // yellow
-] as const;
-
-function getScoreColor(score: number): string {
-  const clamped = Math.max(0, Math.min(1, score));
-  const idx = Math.floor(clamped * (VIRIDIS_COLORS.length - 1));
-  const frac = clamped * (VIRIDIS_COLORS.length - 1) - idx;
-
-  const [r1, g1, b1] = VIRIDIS_COLORS[idx];
-  const [r2, g2, b2] = VIRIDIS_COLORS[Math.min(idx + 1, VIRIDIS_COLORS.length - 1)];
-
-  const r = Math.round(r1 + frac * (r2 - r1));
-  const g = Math.round(g1 + frac * (g2 - g1));
-  const b = Math.round(b1 + frac * (b2 - b1));
-
-  return `rgb(${r}, ${g}, ${b})`;
-}
 
 function getRestingOpacity(isSelected: boolean, isMultiSelected: boolean): number {
   if (isSelected) return 0.7;
@@ -283,6 +261,18 @@ export function GeoMapView({
     [regions],
   );
 
+  // Dynamic color scale — recomputes whenever the visible region set changes.
+  // Because GeoMapView only receives the regions it should render (e.g. only
+  // tracts for the selected county), this is automatically "local" normalization.
+  const colorScale = useMemo(
+    () => new ColorScale(regions.map(r => r.score), getColorMode(geoLevel)),
+    [regions, geoLevel],
+  );
+  // Ref so geoJsonStyle (stored in styleFnRef) always uses the latest scale
+  // without needing to be re-registered as a Leaflet event handler.
+  const colorScaleRef = useRef(colorScale);
+  colorScaleRef.current = colorScale;
+
   // Polygon loading state — seed from module state so it's correct if already in-flight on mount
   const [polyLoading, setPolyLoading] = useState(() => getPolygonLoadingState(geoLevel).loading);
   const [polyProgress, setPolyProgress] = useState(() => getPolygonLoadingState(geoLevel).progress);
@@ -329,7 +319,9 @@ export function GeoMapView({
     const region = regionByIdRef.current.get(feature.properties.id);
     if (!region) return DEFAULT_STYLE;
 
-    const fillColor = getScoreColor(region.score);
+    const fillColor = isRankBased(geoLevel)
+      ? colorScaleRef.current.getColorByRank(region.rank, regionByIdRef.current.size)
+      : colorScaleRef.current.getColor(region.score);
 
     if (selectedRegionIdsRef.current.has(region.id)) {
       return { fillColor, fillOpacity: 0.65, color: '#f80015', weight: 3 };
@@ -466,6 +458,61 @@ export function GeoMapView({
             {multiSelectEnabled && ' • Ctrl+click to multi-select'}</>
           )}
         </p>
+      </div>
+
+      {/* Floating color-scale legend — bottom-left, outside MapContainer so z-index is reliable */}
+      <div
+        className="absolute bottom-6 left-2 z-[1000] pointer-events-none select-none"
+        style={{ minWidth: 148 }}
+      >
+        <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 px-2.5 py-2">
+          {/* Header */}
+          <div className="mb-1.5">
+            <p className="text-[10px] font-semibold text-gray-800 leading-tight">Score Classification</p>
+            <p className="text-[9px] text-gray-400 leading-tight">
+              {isRankBased(geoLevel) ? 'Rank-based' : colorScale.mode === 'quantile' ? 'Equal-count' : 'Asymmetric'} · {regions.length} {geoLevel}{regions.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {/* Bands — best first */}
+          <div className="space-y-[3px]">
+            {isRankBased(geoLevel)
+              ? RANK_LEGEND_ROWS.map(({ band, color, label, range }) => (
+                  <div key={band} className="flex items-center gap-1.5">
+                    <div className="flex-shrink-0 rounded-sm" style={{ width: 12, height: 10, backgroundColor: color }} />
+                    <span className="text-[9px] text-gray-600 leading-tight whitespace-nowrap">
+                      {label}
+                      <span className="text-gray-400 ml-1">{range}</span>
+                    </span>
+                  </div>
+                ))
+              : colorScale.getLegendRows().map(({ band, color, label, lo, hi }) => (
+                  <div key={band} className="flex items-center gap-1.5">
+                    <div className="flex-shrink-0 rounded-sm" style={{ width: 12, height: 10, backgroundColor: color }} />
+                    <span className="text-[9px] text-gray-600 leading-tight whitespace-nowrap">
+                      {label}
+                      <span className="text-gray-400 ml-1">
+                        {band === 5 ? `≥${lo}%` : band === 0 ? `<${hi}%` : `${lo}–${hi}%`}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+          </div>
+
+          {/* Divider + map indicators */}
+          <div className="mt-1.5 pt-1.5 border-t border-gray-100 space-y-[3px]">
+            <div className="flex items-center gap-1.5">
+              <div className="flex-shrink-0 rounded-sm border-2 border-dashed border-purple-500" style={{ width: 12, height: 10 }} />
+              <span className="text-[9px] text-gray-500">Geofence</span>
+            </div>
+            {multiSelectEnabled && (
+              <div className="flex items-center gap-1.5">
+                <div className="flex-shrink-0 rounded-sm border-2 border-red-500" style={{ width: 12, height: 10 }} />
+                <span className="text-[9px] text-gray-500">Selected</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
