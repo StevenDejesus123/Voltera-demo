@@ -10,6 +10,27 @@ import { LassoToggleButton } from './LassoToggleButton';
 import { CompetitorMapLayer } from './CompetitorMapLayer';
 import { MSACompetitorLayer } from './MSACompetitorLayer';
 import { ColorScale, getColorMode, isRankBased, RANK_LEGEND_ROWS } from '../utils/colorScale';
+import type { ZoningDistrict, ZoningColorMode } from '../types/zoning';
+
+// ── Zoning district color helpers ─────────────────────────────────────────────
+
+const ZONE_CATEGORY_COLORS: Record<string, { fill: string; border: string }> = {
+  'Commercial':  { fill: '#3b82f6', border: '#1d4ed8' },
+  'Industrial':  { fill: '#f97316', border: '#c2410c' },
+  'Residential': { fill: '#ef4444', border: '#b91c1c' },
+  'Mixed Use':   { fill: '#f59e0b', border: '#b45309' },
+};
+const ZONE_DEFAULT_COLOR = { fill: '#6b7280', border: '#374151' };
+
+function zoneColor(category: string): { fill: string; border: string } {
+  return ZONE_CATEGORY_COLORS[category] ?? ZONE_DEFAULT_COLOR;
+}
+
+function evPermittedColor(permitted: boolean): { fill: string; border: string } {
+  return permitted
+    ? { fill: '#22c55e', border: '#15803d' }
+    : { fill: '#ef4444', border: '#b91c1c' };
+}
 
 const DEFAULT_STYLE: L.PathOptions = {
   fillOpacity: 0.1,
@@ -68,6 +89,10 @@ interface GeoMapViewProps {
   // Market Intelligence layer
   competitorSites?: CompetitorSite[];
   showCompetitorLayer?: boolean;
+  // Zoning Feasibility overlay (Tract level)
+  zoningDistricts?: ZoningDistrict[];
+  zoningColorMode?: ZoningColorMode;
+  onSelectZoningDistrict?: (district: ZoningDistrict) => void;
 }
 
 /**
@@ -200,6 +225,17 @@ function MapResizeHandler() {
   return null;
 }
 
+/** Applies a CSS filter to Leaflet's tile pane only — choropleth layers above are unaffected. */
+function TileLayerFilter({ filter }: { filter: string }) {
+  const map = useMap();
+  useEffect(() => {
+    const pane = map.getPane('tilePane');
+    if (pane) pane.style.filter = filter;
+    return () => { if (pane) pane.style.filter = ''; };
+  }, [map, filter]);
+  return null;
+}
+
 /**
  * Imperatively updates GeoJSON layer styles when selection changes,
  * without destroying/recreating the entire GeoJSON layer tree.
@@ -213,7 +249,9 @@ function MapStyleUpdater({ styleFnRef }: { styleFnRef: React.RefObject<((feature
     const fn = styleFnRef.current;
     if (!fn) return;
     map.eachLayer((layer: any) => {
-      if (layer.feature && layer.setStyle) {
+      // Only update ranking choropleth layers (have 'id' in properties).
+      // Zoning overlay layers use '_zoning_id' and manage their own styles.
+      if (layer.feature && layer.setStyle && layer.feature.properties?.id) {
         try {
           layer.setStyle(fn(layer.feature));
         } catch { /* layer may have been removed */ }
@@ -222,6 +260,114 @@ function MapStyleUpdater({ styleFnRef }: { styleFnRef: React.RefObject<((feature
   });
 
   return null;
+}
+
+/**
+ * Renders zoning district polygons as a second GeoJSON layer on top of the
+ * ranking choropleth. Each district is a separate city-zoning polygon
+ * (multiple per census tract). Colored by EV permission or zone category.
+ */
+function ZoningOverlayLayer({
+  districts,
+  zoningColorMode,
+  onSelectZoningDistrict,
+}: {
+  districts: ZoningDistrict[];
+  zoningColorMode: ZoningColorMode;
+  onSelectZoningDistrict?: (district: ZoningDistrict) => void;
+}) {
+  const map = useMap();
+  const colorModeRef = useRef(zoningColorMode);
+  colorModeRef.current = zoningColorMode;
+  const onSelectRef = useRef(onSelectZoningDistrict);
+  onSelectRef.current = onSelectZoningDistrict;
+
+  const districtByZoneId = useMemo(
+    () => new Map(districts.map(d => [d.zone_id, d])),
+    [districts],
+  );
+  const districtByZoneIdRef = useRef(districtByZoneId);
+  districtByZoneIdRef.current = districtByZoneId;
+
+  const geojsonData = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: 'FeatureCollection',
+    features: districts.map(d => d.feature),
+  }), [districts]);
+
+  function districtStyle(feature: any): L.PathOptions {
+    const d = districtByZoneIdRef.current.get(feature?.properties?.zone_id);
+    if (!d) return {};
+    const colors = colorModeRef.current === 'zone_category'
+      ? zoneColor(d.zone_category)
+      : evPermittedColor(d.ev_permitted);
+    return {
+      fillColor: colors.fill,
+      fillOpacity: 0.65,
+      color: colors.border,
+      weight: 2,
+      opacity: 1,
+    };
+  }
+
+  const styleFnRef = useRef(districtStyle);
+  styleFnRef.current = districtStyle;
+
+  // Re-apply styles imperatively on every render so color-mode toggle takes effect
+  useEffect(() => {
+    const fn = styleFnRef.current;
+    map.eachLayer((layer: any) => {
+      if (layer.feature && layer.setStyle && layer.feature.properties?.zone_id) {
+        try { layer.setStyle(fn(layer.feature)); } catch {}
+      }
+    });
+  });
+
+  const geoJsonKey = districts.map(d => d.zone_id).sort().join('|');
+
+  if (districts.length === 0) return null;
+
+  return (
+    <GeoJSON
+      key={geoJsonKey}
+      data={geojsonData}
+      style={districtStyle}
+      onEachFeature={(feature, layer) => {
+        const d = districtByZoneIdRef.current.get(feature?.properties?.zone_id);
+        if (!d) return;
+        const permColor = d.ev_permitted ? '#15803d' : '#b91c1c';
+        const permLabel = d.ev_permitted ? '✓ Permitted by right' : '✗ Not permitted';
+        layer.on({
+          mouseover: () => {
+            if (!(layer as any)._map) return;
+            try { (layer as any).setStyle({ fillOpacity: 0.88, weight: 3 }); } catch {}
+          },
+          mouseout: () => {
+            if (!(layer as any)._map) return;
+            try { (layer as any).setStyle(styleFnRef.current(feature)); } catch {}
+          },
+          click: (e: L.LeafletMouseEvent) => {
+            e.originalEvent?.stopPropagation();
+            const clicked = districtByZoneIdRef.current.get(feature?.properties?.zone_id);
+            if (clicked) onSelectRef.current?.(clicked);
+          },
+        });
+        layer.bindTooltip(
+          `<div style="font-size:12px;line-height:1.7;min-width:200px">
+            <div style="font-weight:700;font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:#374151;margin-bottom:3px">⬡ Zoning District</div>
+            <div style="font-weight:600;font-size:13px">${d.city}</div>
+            <div style="color:#9ca3af;font-size:10px;margin-bottom:6px">Tract ${d.tract_id}</div>
+            <div style="margin-bottom:3px">
+              <span style="color:#6b7280">Zone code:</span>
+              <strong style="margin-left:4px">${d.zone_code}</strong>
+              <span style="margin-left:6px;color:#6b7280">(${d.zone_category})</span>
+            </div>
+            <div style="font-weight:600;color:${permColor}">${permLabel}</div>
+          </div>`,
+          { sticky: true },
+        );
+      }}
+    />
+  );
 }
 
 export function GeoMapView({
@@ -239,6 +385,9 @@ export function GeoMapView({
   onToggleLasso,
   competitorSites = [],
   showCompetitorLayer = false,
+  zoningDistricts,
+  zoningColorMode = 'ev_permitted',
+  onSelectZoningDistrict,
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
   lassoEnabledRef.current = lassoEnabled;
@@ -319,6 +468,7 @@ export function GeoMapView({
     const region = regionByIdRef.current.get(feature.properties.id);
     if (!region) return DEFAULT_STYLE;
 
+    // ── Default ranking style ──────────────────────────────────────────────────
     const fillColor = isRankBased(geoLevel)
       ? colorScaleRef.current.getColorByRank(region.rank, regionByIdRef.current.size)
       : colorScaleRef.current.getColor(region.score);
@@ -397,6 +547,7 @@ export function GeoMapView({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <TileLayerFilter filter="grayscale(1) brightness(1.1) contrast(0.9)" />
 
         {polygonData?.features?.length > 0 && (
           <GeoJSON
@@ -430,6 +581,15 @@ export function GeoMapView({
         {/* Imperative style updates when selection changes (no GeoJSON remount) */}
         <MapStyleUpdater styleFnRef={styleFnRef} />
 
+        {/* Zoning Feasibility overlay — second GeoJSON layer, district polygons */}
+        {zoningDistricts && zoningDistricts.length > 0 && (
+          <ZoningOverlayLayer
+            districts={zoningDistricts}
+            zoningColorMode={zoningColorMode}
+            onSelectZoningDistrict={onSelectZoningDistrict}
+          />
+        )}
+
         {/* Handle map resize when container size changes */}
         <MapResizeHandler />
 
@@ -459,6 +619,43 @@ export function GeoMapView({
           )}
         </p>
       </div>
+
+      {/* Zoning overlay mini-legend — appears above the score legend when active */}
+      {zoningDistricts && zoningDistricts.length > 0 && (
+        <div className="absolute bottom-6 left-2 z-[1000] pointer-events-none select-none" style={{ minWidth: 148, bottom: 'calc(1.5rem + 170px)' }}>
+          <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 px-2.5 py-2">
+            <p className="text-[10px] font-semibold text-gray-800 leading-tight mb-1.5">
+              Zoning Overlay
+            </p>
+            {zoningColorMode === 'ev_permitted' ? (
+              <div className="space-y-[3px]">
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-shrink-0 rounded-sm" style={{ width: 12, height: 10, backgroundColor: '#22c55e', border: '1px solid #15803d' }} />
+                  <span className="text-[9px] text-gray-600">EV Permitted</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-shrink-0 rounded-sm" style={{ width: 12, height: 10, backgroundColor: '#ef4444', border: '1px solid #b91c1c' }} />
+                  <span className="text-[9px] text-gray-600">Not Permitted</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-[3px]">
+                {([
+                  { label: 'Commercial',  fill: '#3b82f6', border: '#1d4ed8' },
+                  { label: 'Industrial',  fill: '#f97316', border: '#c2410c' },
+                  { label: 'Mixed Use',   fill: '#f59e0b', border: '#b45309' },
+                  { label: 'Residential', fill: '#ef4444', border: '#b91c1c' },
+                ] as { label: string; fill: string; border: string }[]).map(({ label, fill, border }) => (
+                  <div key={label} className="flex items-center gap-1.5">
+                    <div className="flex-shrink-0 rounded-sm" style={{ width: 12, height: 10, backgroundColor: fill, border: `1px solid ${border}` }} />
+                    <span className="text-[9px] text-gray-600">{label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Floating color-scale legend — bottom-left, outside MapContainer so z-index is reliable */}
       <div
