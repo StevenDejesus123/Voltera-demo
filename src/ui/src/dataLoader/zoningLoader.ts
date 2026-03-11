@@ -1,43 +1,63 @@
 /**
  * Zoning Feasibility Overlay — Data Loader
  *
- * Loads two sources in parallel:
- *   1. zoning_tracts_demo.geojson  — zoning district polygons (21 features, 4-5 per tract)
- *                                    Each feature's properties carry all district attributes:
- *                                    zone_id, tract_id, city, zone_code, zone_category, ev_permitted
- *   2. zoning_tracts_demo.csv      — tract-level aggregate summary (one row per tract),
- *                                    derived from intersecting districts with census boundaries
+ * Two-level loading strategy:
  *
- * After loading, dispatches 'zoning:loaded' on window so components can react
- * without prop-drilling.
+ *   1. Summary CSV  (lightweight, loaded once when overlay is first opened)
+ *      /data/exports/zoning/tract_summaries.csv
+ *      One row per tract → tract-level aggregate stats shown in the detail card.
+ *
+ *   2. Per-tract GeoJSON  (lazy, loaded on demand when a tract is selected)
+ *      /data/exports/zoning/tract_{tractId}.geojson
+ *      One file per tract → parcel-level polygons rendered on the map.
+ *      Files are cached in memory so repeat selections don't re-fetch.
+ *
+ * Events dispatched on window:
+ *   'zoning:loaded'         — summary CSV finished loading
+ *   'zoning:tract:loaded'   — { tractId } one tract's GeoJSON finished loading
  */
 
 import type { ZoningDistrict, ZoningTractSummary } from '../types/zoning';
 
-const BASE = '/data/exports';
+const BASE = '/data/exports/zoning';
 
 // ── Module-level cache ────────────────────────────────────────────────────────
 
-let districts: ZoningDistrict[] = [];
-let tractSummaries: Map<string, ZoningTractSummary> = new Map();
-let loadPromise: Promise<void> | null = null;
-let loaded = false;
+/** Parcel features per tract, keyed by tract_id. Populated on demand. */
+const tractCache = new Map<string, ZoningDistrict[]>();
+
+/** Tract-level aggregate summaries from the CSV. */
+let tractSummaries = new Map<string, ZoningTractSummary>();
+
+/** In-flight fetch promises so concurrent callers don't double-fetch. */
+const tractLoadPromises = new Map<string, Promise<void>>();
+
+let summaryLoaded  = false;
+let summaryPromise: Promise<void> | null = null;
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim());
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
   return lines.slice(1).map(line => {
-    const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    // Handle quoted fields (e.g. "NEW YORK, NY")
+    const values: string[] = [];
+    let cur = '';
+    let inQuote = false;
+    for (const ch of line) {
+      if (ch === '"') { inQuote = !inQuote; continue; }
+      if (ch === ',' && !inQuote) { values.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    values.push(cur.trim());
+
     const row: Record<string, string> = {};
     headers.forEach((h, i) => { row[h] = values[i] ?? ''; });
     return row;
   });
 }
-
-// ── Row → typed summary ───────────────────────────────────────────────────────
 
 function toSummary(row: Record<string, string>): ZoningTractSummary {
   return {
@@ -56,24 +76,54 @@ function toSummary(row: Record<string, string>): ZoningTractSummary {
   };
 }
 
-// ── Main load function ────────────────────────────────────────────────────────
+// ── Summary CSV load ──────────────────────────────────────────────────────────
 
-async function doLoad(): Promise<void> {
-  const [geojsonRes, csvRes] = await Promise.all([
-    fetch(`${BASE}/zoning_tracts_demo.geojson`),
-    fetch(`${BASE}/zoning_tracts_demo.csv`),
-  ]);
+async function doLoadSummary(): Promise<void> {
+  const resp = await fetch(`${BASE}/tract_summaries.csv`);
+  if (!resp.ok) throw new Error(`tract_summaries.csv fetch failed: ${resp.status}`);
+  const text = await resp.text();
 
-  if (!geojsonRes.ok) throw new Error(`zoning GeoJSON fetch failed: ${geojsonRes.status}`);
-  if (!csvRes.ok)     throw new Error(`zoning CSV fetch failed: ${csvRes.status}`);
+  tractSummaries = new Map(
+    parseCSV(text)
+      .filter(row => row['tract_id'])
+      .map(row => {
+        const s = toSummary(row);
+        return [s.tract_id, s];
+      }),
+  );
 
-  const [geojson, csvText] = await Promise.all([
-    geojsonRes.json() as Promise<GeoJSON.FeatureCollection<GeoJSON.Polygon>>,
-    csvRes.text(),
-  ]);
+  summaryLoaded = true;
+  window.dispatchEvent(new CustomEvent('zoning:loaded', {
+    detail: { tracts: tractSummaries.size },
+  }));
+  console.info(`[zoningLoader] Summary loaded: ${tractSummaries.size} tract summaries`);
+}
 
-  // Each GeoJSON feature IS a zoning district — all attributes are in properties
-  districts = geojson.features
+/** Trigger summary CSV load (no-op if already loaded or in-flight). */
+export function loadZoningData(): void {
+  if (summaryLoaded || summaryPromise) return;
+  summaryPromise = doLoadSummary().catch(err => {
+    console.error('[zoningLoader] Summary load failed:', err);
+    summaryPromise = null;
+  });
+}
+
+// ── Per-tract GeoJSON load ────────────────────────────────────────────────────
+
+async function doLoadTract(tractId: string): Promise<void> {
+  const resp = await fetch(`${BASE}/tract_${tractId}.geojson`);
+
+  const contentType = resp.headers.get('content-type') ?? '';
+  if (!resp.ok || !contentType.includes('json')) {
+    // 404 or Vite SPA fallback returning HTML (200 with index.html) — no data for this tract
+    tractCache.set(tractId, []);
+    window.dispatchEvent(new CustomEvent('zoning:tract:loaded', { detail: { tractId } }));
+    console.info(`[zoningLoader] No zoning data for tract ${tractId} (${resp.status})`);
+    return;
+  }
+
+  const geojson = await resp.json() as GeoJSON.FeatureCollection<GeoJSON.Polygon>;
+  const districts: ZoningDistrict[] = geojson.features
     .filter(f => f.properties?.zone_id)
     .map(f => ({
       zone_id:       f.properties!.zone_id as string,
@@ -85,53 +135,54 @@ async function doLoad(): Promise<void> {
       feature:       f,
     }));
 
-  // CSV provides the tract-level aggregate summary (one row per tract)
-  tractSummaries = new Map(
-    parseCSV(csvText).map(row => {
-      const s = toSummary(row);
-      return [s.tract_id, s];
-    }),
-  );
-
-  loaded = true;
-  window.dispatchEvent(new CustomEvent('zoning:loaded', {
-    detail: { districts: districts.length, tracts: tractSummaries.size },
-  }));
-  console.info(`[zoningLoader] Loaded ${districts.length} districts across ${tractSummaries.size} tracts`);
+  tractCache.set(tractId, districts);
+  window.dispatchEvent(new CustomEvent('zoning:tract:loaded', { detail: { tractId } }));
+  console.info(`[zoningLoader] Tract ${tractId}: ${districts.length} parcels loaded`);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+/**
+ * Trigger a lazy load of one tract's parcel GeoJSON.
+ * No-op if already cached or in-flight.
+ * Listen for 'zoning:tract:loaded' to know when it completes.
+ */
+export function loadTractZoning(tractId: string): void {
+  if (tractCache.has(tractId)) return;       // already cached
+  if (tractLoadPromises.has(tractId)) return; // already in-flight
 
-/** Trigger data load (no-op if already loaded or in-flight). */
-export function loadZoningData(): void {
-  if (loaded || loadPromise) return;
-  loadPromise = doLoad().catch(err => {
-    console.error('[zoningLoader] Load failed:', err);
-    loadPromise = null;
+  const p = doLoadTract(tractId).catch(err => {
+    console.error(`[zoningLoader] Tract ${tractId} load failed:`, err);
+    tractLoadPromises.delete(tractId);
   });
+  tractLoadPromises.set(tractId, p);
 }
 
-/** Returns all ZoningDistrict objects (empty until load completes). */
-export function getZoningDistricts(): ZoningDistrict[] {
-  return districts;
+// ── Public read API ───────────────────────────────────────────────────────────
+
+/** Returns all cached parcel districts for a tract ([] until loaded). */
+export function getZoningDistrictsForTract(tractId: string): ZoningDistrict[] {
+  return tractCache.get(tractId) ?? [];
 }
 
-/** Returns the tract-level summary for a given tract_id, or undefined. */
+/** True if the tract's parcel file has been fetched (including 404 → empty). */
+export function isTractZoningLoaded(tractId: string): boolean {
+  return tractCache.has(tractId);
+}
+
+/** Returns the tract-level aggregate summary, or undefined if not yet loaded. */
 export function getZoningTractSummary(tractId: string): ZoningTractSummary | undefined {
   return tractSummaries.get(tractId);
 }
 
-/** True after the first successful load. */
+/** True after the summary CSV has loaded successfully. */
 export function isZoningLoaded(): boolean {
-  return loaded;
+  return summaryLoaded;
 }
 
-/** Returns all zoning districts for a specific tract_id (empty until load completes). */
-export function getZoningDistrictsForTract(tractId: string): ZoningDistrict[] {
-  return districts.filter(d => d.tract_id === tractId);
-}
-
-/** Returns all unique zone_category values from loaded districts, sorted. */
+/** Returns all unique zone_category values across all cached tracts, sorted. */
 export function getZoneCategoryOptions(): string[] {
-  return [...new Set(districts.map(d => d.zone_category))].sort();
+  const cats = new Set<string>();
+  for (const districts of tractCache.values()) {
+    for (const d of districts) cats.add(d.zone_category);
+  }
+  return [...cats].sort();
 }

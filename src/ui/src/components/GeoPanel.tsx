@@ -10,8 +10,8 @@ import { ColorScale, getColorMode, isRankBased } from '../utils/colorScale';
 import type { ZoningColorMode, ZoningDistrict, ZoningFilters } from '../types/zoning';
 import { DEFAULT_ZONING_FILTERS } from '../types/zoning';
 import {
-  loadZoningData, getZoningDistrictsForTract,
-  getZoningTractSummary, isZoningLoaded, getZoneCategoryOptions,
+  loadZoningData, loadTractZoning, getZoningDistrictsForTract,
+  isTractZoningLoaded, getZoningTractSummary, isZoningLoaded, getZoneCategoryOptions,
 } from '../dataLoader/zoningLoader';
 
 interface GeoPanelProps {
@@ -73,6 +73,7 @@ export function GeoPanel({
   const [zoningFilters, setZoningFilters] = useState<ZoningFilters>(DEFAULT_ZONING_FILTERS);
   const [showZoningFilters, setShowZoningFilters] = useState(false);
   const [selectedZoningDistrict, setSelectedZoningDistrict] = useState<ZoningDistrict | null>(null);
+  const [tractZoningLoading, setTractZoningLoading] = useState(false);
 
   // Dynamic color scale — same computation as GeoMapView, so table bars match the map.
   const colorScale = useMemo(
@@ -87,7 +88,7 @@ export function GeoPanel({
     }
   }, [viewMode, regions.length]);
 
-  // Load zoning data when the overlay is first opened
+  // Load summary CSV when the overlay is first opened
   useEffect(() => {
     if (!showZoning || geoLevel !== 'Tract') return;
     loadZoningData();
@@ -95,6 +96,28 @@ export function GeoPanel({
     window.addEventListener('zoning:loaded', handler);
     return () => window.removeEventListener('zoning:loaded', handler);
   }, [showZoning, geoLevel]);
+
+  // Trigger per-tract GeoJSON load when selected tract changes
+  useEffect(() => {
+    if (!showZoning || geoLevel !== 'Tract' || !selectedRegion) return;
+    if (isTractZoningLoaded(selectedRegion.id)) return;
+    setTractZoningLoading(true);
+    loadTractZoning(selectedRegion.id);
+  }, [showZoning, geoLevel, selectedRegion?.id]);
+
+  // Listen for per-tract load completion → re-run memo + clear spinner
+  useEffect(() => {
+    if (!showZoning || geoLevel !== 'Tract') return;
+    const handler = (e: Event) => {
+      const tractId = (e as CustomEvent).detail?.tractId;
+      if (tractId === selectedRegion?.id) {
+        setTractZoningLoading(false);
+        setZoningTick(t => t + 1);
+      }
+    };
+    window.addEventListener('zoning:tract:loaded', handler);
+    return () => window.removeEventListener('zoning:tract:loaded', handler);
+  }, [showZoning, geoLevel, selectedRegion?.id]);
 
   // All derived zoning state in one memo — keyed on tick so it re-runs after load.
   // Districts are scoped to the selected tract: one tract → its parcels only.
@@ -412,12 +435,19 @@ export function GeoPanel({
                       Export
                     </button>
 
-                    {/* Stats */}
-                    {zoningStats && (
-                      <span className="ml-auto text-[11px] text-purple-600 font-medium whitespace-nowrap">
-                        {zoningStats.evPermitted}/{zoningStats.total} EV-permitted
-                      </span>
-                    )}
+                    {/* Stats / loading indicator */}
+                    <span className="ml-auto text-[11px] text-purple-600 font-medium whitespace-nowrap flex items-center gap-1">
+                      {tractZoningLoading ? (
+                        <>
+                          <span className="w-3 h-3 rounded-full border-2 border-purple-300 border-t-purple-600 animate-spin inline-block" />
+                          Loading parcels…
+                        </>
+                      ) : zoningStats ? (
+                        <>{zoningStats.evPermitted}/{zoningStats.total} EV-permitted</>
+                      ) : selectedRegion ? (
+                        'No zoning data'
+                      ) : null}
+                    </span>
                   </div>
                 )}
 
