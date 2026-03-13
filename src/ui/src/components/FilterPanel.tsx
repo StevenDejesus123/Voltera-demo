@@ -71,6 +71,14 @@ export function FilterPanel({
   const [msaDropdownOpen, setMsaDropdownOpen] = useState(false);
   const [countyDropdownOpen, setCountyDropdownOpen] = useState(false);
   const [tractDropdownOpen, setTractDropdownOpen] = useState(false);
+
+  // Draft state for rank number inputs — empty string = not being edited
+  const [msaDraftLo,     setMsaDraftLo]     = useState('');
+  const [msaDraftHi,     setMsaDraftHi]     = useState('');
+  const [countyDraftLo,  setCountyDraftLo]  = useState('');
+  const [countyDraftHi,  setCountyDraftHi]  = useState('');
+  const [tractDraftLo,   setTractDraftLo]   = useState('');
+  const [tractDraftHi,   setTractDraftHi]   = useState('');
   const [exportLevel, setExportLevel] = useState<GeoLevel>('MSA');
   const [exportFormat, setExportFormat] = useState<'CSV' | 'GeoJSON' | 'KML'>('CSV');
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
@@ -358,7 +366,35 @@ export function FilterPanel({
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-600">MSA Rank</span>
-              <span className="text-xs text-gray-600">{msaRange[0]} - {msaRange[1]}</span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={msaDraftLo !== '' ? msaDraftLo : msaRange[0]}
+                  onChange={e => setMsaDraftLo(e.target.value)}
+                  onFocus={e => { setMsaDraftLo(String(msaRange[0])); e.currentTarget.select(); }}
+                  onBlur={() => {
+                    const v = Math.max(msaBounds[0], Math.min(msaRange[1], parseInt(msaDraftLo) || msaRange[0]));
+                    setMsaRange([v, msaRange[1]]);
+                    setMsaDraftLo('');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+                <span className="text-xs text-gray-400">–</span>
+                <input
+                  type="number"
+                  className="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={msaDraftHi !== '' ? msaDraftHi : msaRange[1]}
+                  onChange={e => setMsaDraftHi(e.target.value)}
+                  onFocus={e => { setMsaDraftHi(String(msaRange[1])); e.currentTarget.select(); }}
+                  onBlur={() => {
+                    const v = Math.max(msaRange[0], Math.min(msaBounds[1], parseInt(msaDraftHi) || msaRange[1]));
+                    setMsaRange([msaRange[0], v]);
+                    setMsaDraftHi('');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+              </div>
             </div>
             <div className="mt-3">
               <Slider.Root
@@ -383,7 +419,35 @@ export function FilterPanel({
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-600">County Rank</span>
-              <span className="text-xs text-gray-600">{countyRange[0]} - {countyRange[1]}</span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={countyDraftLo !== '' ? countyDraftLo : countyRange[0]}
+                  onChange={e => setCountyDraftLo(e.target.value)}
+                  onFocus={e => { setCountyDraftLo(String(countyRange[0])); e.currentTarget.select(); }}
+                  onBlur={() => {
+                    const v = Math.max(countyBounds[0], Math.min(countyRange[1], parseInt(countyDraftLo) || countyRange[0]));
+                    setCountyRange([v, countyRange[1]]);
+                    setCountyDraftLo('');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+                <span className="text-xs text-gray-400">–</span>
+                <input
+                  type="number"
+                  className="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={countyDraftHi !== '' ? countyDraftHi : countyRange[1]}
+                  onChange={e => setCountyDraftHi(e.target.value)}
+                  onFocus={e => { setCountyDraftHi(String(countyRange[1])); e.currentTarget.select(); }}
+                  onBlur={() => {
+                    const v = Math.max(countyRange[0], Math.min(countyBounds[1], parseInt(countyDraftHi) || countyRange[1]));
+                    setCountyRange([countyRange[0], v]);
+                    setCountyDraftHi('');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+              </div>
             </div>
             <div className="mt-3">
               <Slider.Root
@@ -408,7 +472,35 @@ export function FilterPanel({
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-600">Tract Rank</span>
-              <span className="text-xs text-gray-600">{tractRange[0]} - {tractRange[1]}</span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={tractDraftLo !== '' ? tractDraftLo : tractRange[0]}
+                  onChange={e => setTractDraftLo(e.target.value)}
+                  onFocus={e => { setTractDraftLo(String(tractRange[0])); e.currentTarget.select(); }}
+                  onBlur={() => {
+                    const v = Math.max(tractBounds[0], Math.min(tractRange[1], parseInt(tractDraftLo) || tractRange[0]));
+                    setTractRange([v, tractRange[1]]);
+                    setTractDraftLo('');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+                <span className="text-xs text-gray-400">–</span>
+                <input
+                  type="number"
+                  className="w-14 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={tractDraftHi !== '' ? tractDraftHi : tractRange[1]}
+                  onChange={e => setTractDraftHi(e.target.value)}
+                  onFocus={e => { setTractDraftHi(String(tractRange[1])); e.currentTarget.select(); }}
+                  onBlur={() => {
+                    const v = Math.max(tractRange[0], Math.min(tractBounds[1], parseInt(tractDraftHi) || tractRange[1]));
+                    setTractRange([tractRange[0], v]);
+                    setTractDraftHi('');
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                />
+              </div>
             </div>
             <div className="mt-3">
               <Slider.Root

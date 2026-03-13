@@ -14,12 +14,12 @@
  *              appear gray. Rank-based coloring always distributes the 6 colors
  *              across the visible regions, showing relative performance:
  *
- *              Band 5  top  5 %   deep green  (prime candidates)
- *              Band 4   5–15 %    green
- *              Band 3  15–30 %    lime
- *              Band 2  30–50 %    amber
- *              Band 1  50–75 %    orange
- *              Band 0  bottom 25% gray         (de-emphasised)
+ *              Band 5  top  5 %   deep blue   (prime candidates)
+ *              Band 4   5–15 %    medium blue
+ *              Band 3  15–30 %    light blue
+ *              Band 2  30–50 %    gold/yellow
+ *              Band 1  50–75 %    light beige
+ *              Band 0  bottom 25% gray          (de-emphasised)
  *
  *              Because GeoMapView only receives the regions it is rendering
  *              (e.g. tracts for the selected county), "local" normalization is
@@ -30,12 +30,12 @@ export type ColorMode = 'quantile' | 'asymmetric';
 
 /** 6-band palette: index 0 = lowest/worst, index 5 = highest/best. */
 export const BAND_COLORS = [
-  '#94a3b8', // Band 0: slate-400    — bottom tier, gray (de-emphasised)
-  '#f97316', // Band 1: orange-500
-  '#f59e0b', // Band 2: amber-500
-  '#84cc16', // Band 3: lime-500
-  '#22c55e', // Band 4: green-500
-  '#15803d', // Band 5: green-700    — top tier, deep green
+  '#A5B3C0', // Band 0: bottom 25%       — gray (de-emphasised)
+  '#F2DFCC', // Band 1: below avg 50-75% — light beige
+  '#FFD183', // Band 2: avg 30-50%       — gold/yellow
+  '#8AB3FF', // Band 3: above avg 15-30% — light blue
+  '#4C74EA', // Band 4: top 5-15%        — medium blue
+  '#0F28C3', // Band 5: top 5%           — deep blue (prime candidates)
 ] as const;
 
 /** Human-readable label for each band (index 0 = worst). */

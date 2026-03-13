@@ -33,10 +33,10 @@ function evPermittedColor(permitted: boolean): { fill: string; border: string } 
 }
 
 const DEFAULT_STYLE: L.PathOptions = {
-  fillOpacity: 0.1,
+  fillOpacity: 0,
   color: '#334155',
-  opacity: 0.1,
-  weight: 1,
+  opacity: 0,
+  weight: 0,
 };
 
 function getRestingOpacity(isSelected: boolean, isMultiSelected: boolean): number {
@@ -47,7 +47,6 @@ function getRestingOpacity(isSelected: boolean, isMultiSelected: boolean): numbe
 
 // ── Overlay shown while polygon data streams in ──────────────────────────────
 function PolyLoadingOverlay({ progress, geoLevel }: { progress: number; geoLevel: GeoLevel }) {
-  const sizeMB: Record<GeoLevel, string> = { MSA: '71 MB', County: '37 MB', Tract: '304 MB' };
   const known = progress >= 0;
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/70 z-[1000] backdrop-blur-sm">
@@ -55,7 +54,6 @@ function PolyLoadingOverlay({ progress, geoLevel }: { progress: number; geoLevel
         <div className="flex flex-col items-center gap-2">
           <div className="w-10 h-10 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
           <p className="font-semibold text-gray-800 text-sm">Loading {geoLevel} map data</p>
-          <p className="text-xs text-gray-500">{sizeMB[geoLevel]} — this may take a moment</p>
         </div>
         <div className="space-y-1">
           <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
@@ -480,9 +478,9 @@ export function GeoMapView({
       return { fillColor, fillOpacity: 0.7, color: '#ff00b3', weight: 3 };
     }
     if (region.inGeofence) {
-      return { fillColor, fillOpacity: 0.5, color: '#8b5cf6', weight: 2, dashArray: '5,5' };
+      return { fillColor, fillOpacity: 0.3, color: '#8b5cf6', weight: 2, dashArray: '5,5' };
     }
-    return { fillColor, fillOpacity: 0.5, color: '#334155', opacity: 0.5, weight: 1 };
+    return { fillColor, fillOpacity: 0.3, color: '#334155', opacity: 0.5, weight: 1 };
   }
 
   // Keep a ref to the style function so MapStyleUpdater can call it

@@ -78,7 +78,12 @@ export async function loadTractPolygonsForCounty(countyId: string): Promise<void
 
   try {
     const res = await fetch(`/data/exports/tract_polygons/county_${countyId}.json`);
-    if (!res.ok) throw new Error(`${res.status} for county_${countyId}`);
+    const ct = res.headers.get('content-type') ?? '';
+    if (!res.ok || !ct.includes('json')) {
+      // File not found or Vite SPA fallback returned HTML — no polygons for this county yet
+      tractCountyLoaded.add(countyId);
+      return;
+    }
 
     const contentLength = res.headers.get('Content-Length');
     const total = contentLength ? parseInt(contentLength, 10) : null;
