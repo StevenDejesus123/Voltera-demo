@@ -1,6 +1,6 @@
 import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2 } from 'lucide-react';
 import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails } from '../types';
-import { exportToCSV, exportToGeoJSON, exportToKML, ExportOptions } from '../utils/exportUtils';
+import { exportToCSV, exportToGeoJSON, exportToKML, exportToShapefile, ExportOptions } from '../utils/exportUtils';
 import { ensureDetailsLoaded, getRegionDetails } from '../dataLoader/frontendLoader';
 import { useState } from 'react';
 import * as Slider from '@radix-ui/react-slider';
@@ -80,7 +80,7 @@ export function FilterPanel({
   const [tractDraftLo,   setTractDraftLo]   = useState('');
   const [tractDraftHi,   setTractDraftHi]   = useState('');
   const [exportLevel, setExportLevel] = useState<GeoLevel>('MSA');
-  const [exportFormat, setExportFormat] = useState<'CSV' | 'GeoJSON' | 'KML'>('CSV');
+  const [exportFormat, setExportFormat] = useState<'CSV' | 'GeoJSON' | 'KML' | 'Shapefile'>('CSV');
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [useSmartMerge, setUseSmartMerge] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -150,9 +150,13 @@ export function FilterPanel({
         exportToCSV(regions, options);
       } else if (exportFormat === 'GeoJSON') {
         exportToGeoJSON(regions, exportLevel, options);
+      } else if (exportFormat === 'Shapefile') {
+        await exportToShapefile(exportLevel, regions.map(r => r.id));
       } else {
         exportToKML(regions, exportLevel, options);
       }
+    } catch (err: any) {
+      alert(`Export failed: ${err.message || err}`);
     } finally {
       setIsExporting(false);
     }
@@ -575,7 +579,7 @@ export function FilterPanel({
             Format
           </label>
           <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-            {(['CSV', 'GeoJSON', 'KML'] as const).map((format) => (
+            {(['CSV', 'GeoJSON', 'KML', 'Shapefile'] as const).map((format) => (
               <button
                 key={format}
                 onClick={() => setExportFormat(format)}
@@ -620,7 +624,7 @@ export function FilterPanel({
           {isExporting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Preparing...
+              {exportFormat === 'Shapefile' ? 'Generating shapefile...' : 'Preparing...'}
             </>
           ) : (
             <>

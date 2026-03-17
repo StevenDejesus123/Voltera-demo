@@ -204,6 +204,29 @@ export function exportToKML(
   downloadKML(placemarks, 'Site Ranking Export', 'AI-ranked regions for site selection', 'ranking-export.kml');
 }
 
+export async function exportToShapefile(geoLevel: GeoLevel, regionIds?: string[]): Promise<void> {
+  const geography = geoLevel.toLowerCase();
+
+  const resp = await fetch('/api/export/shapefile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geography, regionIds }),
+  });
+
+  const result = await resp.json();
+
+  if (!resp.ok || result.status !== 'ok') {
+    throw new Error(result.message || 'Shapefile export failed');
+  }
+
+  // Download the generated ZIP
+  const zipResp = await fetch(result.file);
+  if (!zipResp.ok) throw new Error('Failed to download shapefile ZIP');
+
+  const blob = await zipResp.blob();
+  triggerDownload(URL.createObjectURL(blob), `rankings_${geography}_shapefile.zip`);
+}
+
 // ---------------------------------------------------------------------------
 // Analysis helpers for export enrichment
 // ---------------------------------------------------------------------------
@@ -492,9 +515,7 @@ function removeInteriorHoles(geom: Polygon | MultiPolygon): Polygon | MultiPolyg
 // General utilities
 // ---------------------------------------------------------------------------
 
-function downloadFile(content: string, filename: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
+function triggerDownload(url: string, filename: string): void {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
@@ -502,6 +523,11 @@ function downloadFile(content: string, filename: string, mimeType: string): void
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function downloadFile(content: string, filename: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  triggerDownload(URL.createObjectURL(blob), filename);
 }
 
 function escapeXml(unsafe: string): string {
