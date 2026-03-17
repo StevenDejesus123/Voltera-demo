@@ -5,6 +5,7 @@ import buffer from '@turf/buffer';
 import { featureCollection, polygon, multiPolygon } from '@turf/helpers';
 import type { Feature, Polygon, MultiPolygon, GeoJsonProperties } from 'geojson';
 import { getVisibleFields, FIELD_LABELS, aggregateDetails, getVisibleAnalysis } from './analysisUtils';
+import * as shpwrite from '@mapbox/shp-write';
 
 export interface ExportOptions {
   includePolygons?: boolean;
@@ -204,27 +205,84 @@ export function exportToKML(
   downloadKML(placemarks, 'Site Ranking Export', 'AI-ranked regions for site selection', 'ranking-export.kml');
 }
 
-export async function exportToShapefile(geoLevel: GeoLevel, regionIds?: string[]): Promise<void> {
-  const geography = geoLevel.toLowerCase();
+// Short DBF field name mapping (DBF max 10 chars per field name)
+const SHP_FIELD_MAP: Partial<Record<keyof RegionDetails, string>> = {
+  evStationCount:       'EV_STNS',
+  airportCount:         'AIRPORTS',
+  avTestingCount:       'AV_SITES',
+  avTestingVehicles:    'AV_VEHS',
+  population:           'POPULATION',
+  populationDensity:    'POP_DENS',
+  medianIncome:         'MED_INCOME',
+  avgWeeklyWage:        'AVG_WAGE',
+  publicTransitPct:     'TRNST_PCT',
+  rideshareTrips:       'RIDE_TRIPS',
+  ridesharePerCapita:   'RIDE_CAP',
+  rideshareDensity:     'RIDE_DENS',
+  federalFundingAmount: 'FED_FUND',
+  stateFundingCount:    'ST_FUND_CT',
+  gasPrice:             'GAS_PRICE',
+  electricityPrice:     'ELEC_PRICE',
+  snowdays:             'SNOWDAYS',
+  temperature:          'TEMP',
+  precipitation:        'PRECIP',
+  hurricaneRisk:        'HURR_RISK',
+  stormRisk:            'STORM_RISK',
+  earthquakeRisk:       'EQ_RISK',
+};
 
-  const resp = await fetch('/api/export/shapefile', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ geography, regionIds }),
+export async function exportToShapefile(
+  regions: Region[],
+  geoLevel?: GeoLevel,
+  options: ExportOptions = {}
+): Promise<void> {
+  const { analysisData } = options;
+  const polygonMap = buildPolygonMap(geoLevel, true);
+  const geoLevelStr = geoLevel?.toLowerCase() ?? 'region';
+  const visibleFields = geoLevel ? getVisibleFields(geoLevel) : [];
+
+  const features = regions.map(region => {
+    const geom = polygonMap.get(region.id) ?? {
+      type: 'Point' as const,
+      coordinates: [region.lng, region.lat],
+    };
+
+    const props: Record<string, string | number | null> = {
+      REGION_ID: region.id,
+      NAME: region.name.slice(0, 200),
+      RANK: region.rank,
+      SCORE: parseFloat(region.score.toFixed(4)),
+      CUSTOMERS: region.customerCount,
+      GEOFENCE: region.inGeofence ? 1 : 0,
+    };
+
+    if (analysisData && visibleFields.length > 0) {
+      const details = analysisData.get(region.id);
+      if (details) {
+        for (const field of visibleFields) {
+          const val = details[field];
+          if (val != null) {
+            const shortName = SHP_FIELD_MAP[field] ?? field.slice(0, 10).toUpperCase();
+            props[shortName] = typeof val === 'number' ? parseFloat(val.toFixed(4)) : String(val);
+          }
+        }
+      }
+    }
+
+    return { type: 'Feature' as const, geometry: geom, properties: props };
   });
 
-  const result = await resp.json();
+  const blob = await shpwrite.zip(
+    { type: 'FeatureCollection', features } as any,
+    {
+      folder: `rankings_${geoLevelStr}_shapefile`,
+      filename: `rankings_${geoLevelStr}_shapefile`,
+      outputType: 'blob',
+      compression: 'DEFLATE',
+    }
+  ) as unknown as Blob;
 
-  if (!resp.ok || result.status !== 'ok') {
-    throw new Error(result.message || 'Shapefile export failed');
-  }
-
-  // Download the generated ZIP
-  const zipResp = await fetch(result.file);
-  if (!zipResp.ok) throw new Error('Failed to download shapefile ZIP');
-
-  const blob = await zipResp.blob();
-  triggerDownload(URL.createObjectURL(blob), `rankings_${geography}_shapefile.zip`);
+  triggerDownload(URL.createObjectURL(blob), `rankings_${geoLevelStr}_shapefile.zip`);
 }
 
 // ---------------------------------------------------------------------------

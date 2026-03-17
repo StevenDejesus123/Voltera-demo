@@ -151,7 +151,7 @@ export function FilterPanel({
       } else if (exportFormat === 'GeoJSON') {
         exportToGeoJSON(regions, exportLevel, options);
       } else if (exportFormat === 'Shapefile') {
-        await exportToShapefile(exportLevel, regions.map(r => r.id));
+        await exportToShapefile(regions, exportLevel, options);
       } else {
         exportToKML(regions, exportLevel, options);
       }
