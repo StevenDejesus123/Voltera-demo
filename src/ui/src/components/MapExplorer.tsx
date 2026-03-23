@@ -830,6 +830,8 @@ export function MapExplorer() {
           multiSelectedTracts={selectedTracts}
           collapsed={filterCollapsed}
           onToggleCollapse={() => setFilterCollapsed(prev => !prev)}
+          filteredCompetitorSites={selectedMSA ? msaCompetitorSites : competitorSites}
+          showCompetitorLayer={showCompetitorLayer}
         />
 
         {/* Center - 3 Panel Layout */}

@@ -34,6 +34,10 @@ export const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = 
   hurricaneRisk:         'avg',
   stormRisk:             'avg',
   earthquakeRisk:        'avg',
+  gridLoadCapacity:      'avg',
+  substationCapacity:    'avg',
+  substationDist:        'avg',
+  gridCircuitDist:       'avg',
 };
 
 /**
@@ -80,6 +84,11 @@ export const FIELD_VISIBILITY: Record<string, Record<GeoLevel, boolean>> = {
   hurricaneRisk:        { MSA: true,  County: false, Tract: false },
   stormRisk:            { MSA: false, County: true,  Tract: false },
   earthquakeRisk:       { MSA: false, County: false, Tract: true  },
+  gridLoadCapacity:     { MSA: false, County: false, Tract: true  },
+  substationCapacity:   { MSA: false, County: false, Tract: true  },
+  substationDist:       { MSA: false, County: false, Tract: true  },
+  gridCircuitDist:      { MSA: false, County: false, Tract: true  },
+  utilityProvider:      { MSA: false, County: false, Tract: true  },
 };
 
 // ── Human-readable labels ─────────────────────────────────────────────────────
@@ -111,6 +120,11 @@ export const FIELD_LABELS: Record<string, string> = {
   snowdaysMSA:          'Snow Days (MSA)',
   temperatureMSA:       'Temperature (MSA)',
   areaSqrtMiles:        'Area (Sqrt Miles)',
+  gridLoadCapacity:     'Grid Load Capacity (kW)',
+  substationCapacity:   'Substation Capacity (MW)',
+  substationDist:       'Distance to Substation (m)',
+  gridCircuitDist:      'Distance to Grid Circuit (m)',
+  utilityProvider:      'Utility Provider',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

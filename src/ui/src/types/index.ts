@@ -42,6 +42,13 @@ export interface RegionDetails {
   snowdaysMSA?: number;
   temperatureMSA?: number;
   earthquakeRisk?: number;
+
+  // Grid infrastructure fields (Tract-level)
+  gridLoadCapacity?: number;
+  substationCapacity?: number;
+  substationDist?: number;
+  gridCircuitDist?: number;
+  utilityProvider?: string;
 }
 
 export interface Region {

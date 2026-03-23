@@ -247,6 +247,30 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
         </CollapsibleSection>
       )}
 
+      {/* Grid Infrastructure — Tract only */}
+      {(shouldShow('gridLoadCapacity', geoLevel) || shouldShow('substationDist', geoLevel)) &&
+        (details.gridLoadCapacity !== undefined || details.substationCapacity !== undefined ||
+         details.substationDist !== undefined || details.gridCircuitDist !== undefined ||
+         details.utilityProvider !== undefined) && (
+        <CollapsibleSection title="Grid Infrastructure" icon={Zap} iconColor="text-blue-500" isOpen={openSections.has('grid')} onToggle={() => toggle('grid')}>
+          {shouldShow('utilityProvider', geoLevel) && details.utilityProvider && (
+            <DetailItem label="Utility Provider" value={String(details.utilityProvider).toUpperCase()} icon={Zap} />
+          )}
+          {shouldShow('gridLoadCapacity', geoLevel) && details.gridLoadCapacity !== undefined && (
+            <DetailItem label="Grid Load Capacity" value={formatDecimal(details.gridLoadCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('gridLoadCapacity')} />
+          )}
+          {shouldShow('substationCapacity', geoLevel) && details.substationCapacity !== undefined && (
+            <DetailItem label="Substation Capacity" value={formatDecimal(details.substationCapacity, 2, '', ' MW')} icon={Zap} aggregation={agg('substationCapacity')} />
+          )}
+          {shouldShow('substationDist', geoLevel) && details.substationDist !== undefined && (
+            <DetailItem label="Distance to Substation" value={formatNumber(details.substationDist, '', ' m')} aggregation={agg('substationDist')} />
+          )}
+          {shouldShow('gridCircuitDist', geoLevel) && details.gridCircuitDist !== undefined && (
+            <DetailItem label="Distance to Grid Circuit" value={formatNumber(details.gridCircuitDist, '', ' m')} aggregation={agg('gridCircuitDist')} />
+          )}
+        </CollapsibleSection>
+      )}
+
       {/* Climate & Risk */}
       <CollapsibleSection title="Climate & Risk" icon={Thermometer} iconColor="text-orange-500" isOpen={openSections.has('climate')} onToggle={() => toggle('climate')}>
         {shouldShow('snowdays', geoLevel) && details.snowdays != null && (

@@ -1,5 +1,5 @@
-import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2 } from 'lucide-react';
-import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails } from '../types';
+import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2, MapPin } from 'lucide-react';
+import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails, CompetitorSite } from '../types';
 import { exportToCSV, exportToGeoJSON, exportToKML, exportToShapefile, ExportOptions } from '../utils/exportUtils';
 import { ensureDetailsLoaded, getRegionDetails } from '../dataLoader/frontendLoader';
 import { useState } from 'react';
@@ -35,6 +35,8 @@ interface FilterPanelProps {
   multiSelectedTracts?: Region[];
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  filteredCompetitorSites?: CompetitorSite[];
+  showCompetitorLayer?: boolean;
 }
 
 export function FilterPanel({
@@ -67,6 +69,8 @@ export function FilterPanel({
   multiSelectedTracts = [],
   collapsed = false,
   onToggleCollapse,
+  filteredCompetitorSites = [],
+  showCompetitorLayer = false,
 }: FilterPanelProps) {
   const [msaDropdownOpen, setMsaDropdownOpen] = useState(false);
   const [countyDropdownOpen, setCountyDropdownOpen] = useState(false);
@@ -83,6 +87,7 @@ export function FilterPanel({
   const [exportFormat, setExportFormat] = useState<'CSV' | 'GeoJSON' | 'KML' | 'Shapefile'>('CSV');
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [useSmartMerge, setUseSmartMerge] = useState(false);
+  const [includeSitePins, setIncludeSitePins] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   const hasCountySelection = multiSelectedCounties.length > 0 || selectedCounty !== null;
@@ -141,9 +146,25 @@ export function FilterPanel({
         if (details) analysisData.set(region.id, details);
       }
 
+      const sitesForExport = includeSitePins && filteredCompetitorSites.length > 0
+        ? filteredCompetitorSites
+        : undefined;
+
+      // For County/Tract exports, scope pins to the selected county boundaries
+      let countyFilter: Region[] | undefined;
+      if (sitesForExport && (exportLevel === 'County' || exportLevel === 'Tract')) {
+        if (multiSelectedCounties.length > 0) {
+          countyFilter = multiSelectedCounties;
+        } else if (selectedCounty) {
+          countyFilter = [selectedCounty];
+        }
+      }
+
       const options: ExportOptions = {
         useSmartMerge,
         analysisData: analysisData.size > 0 ? analysisData : undefined,
+        sites: sitesForExport,
+        siteCountyFilter: countyFilter,
       };
 
       if (exportFormat === 'CSV') {
@@ -610,6 +631,29 @@ export function FilterPanel({
             {useSmartMerge && (
               <p className="text-xs text-gray-500 ml-6">
                 Merges selected regions into a unified boundary following actual tract shapes. Separated areas become distinct polygons in one file.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Include Site Pins - for GeoJSON/KML when competitor layer is active */}
+        {(exportFormat === 'GeoJSON' || exportFormat === 'KML') && showCompetitorLayer && filteredCompetitorSites.length > 0 && (
+          <div className="mb-3 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeSitePins}
+                onChange={(e) => setIncludeSitePins(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+              />
+              <span className="text-sm text-gray-700 flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5" />
+                Include site pins
+              </span>
+            </label>
+            {includeSitePins && (
+              <p className="text-xs text-gray-500 ml-6">
+                {filteredCompetitorSites.length} site{filteredCompetitorSites.length !== 1 ? 's' : ''} from Market Intelligence will be included as point markers.
               </p>
             )}
           </div>
