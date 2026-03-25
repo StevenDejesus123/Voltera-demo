@@ -38,6 +38,13 @@ export const FIELD_AGGREGATION: Partial<Record<keyof RegionDetails, AggType>> = 
   substationCapacity:    'avg',
   substationDist:        'avg',
   gridCircuitDist:       'avg',
+  sceTerritory:          'avg',
+  pgeTerritory:          'avg',
+  ladwpTerritory:        'avg',
+  substationVoltage:     'avg',
+  circuitVoltage:        'avg',
+  pvCapacity:            'avg',
+  gridReadinessScore:    'avg',
 };
 
 /**
@@ -89,6 +96,16 @@ export const FIELD_VISIBILITY: Record<string, Record<GeoLevel, boolean>> = {
   substationDist:       { MSA: false, County: false, Tract: true  },
   gridCircuitDist:      { MSA: false, County: false, Tract: true  },
   utilityProvider:      { MSA: false, County: false, Tract: true  },
+  icaUtility:           { MSA: false, County: false, Tract: true  },
+  sceTerritory:         { MSA: false, County: false, Tract: true  },
+  pgeTerritory:         { MSA: false, County: false, Tract: true  },
+  ladwpTerritory:       { MSA: false, County: false, Tract: true  },
+  substationName:       { MSA: false, County: false, Tract: true  },
+  substationVoltage:    { MSA: false, County: false, Tract: true  },
+  circuitName:          { MSA: false, County: false, Tract: true  },
+  circuitVoltage:       { MSA: false, County: false, Tract: true  },
+  pvCapacity:           { MSA: false, County: false, Tract: true  },
+  gridReadinessScore:   { MSA: false, County: false, Tract: true  },
 };
 
 // ── Human-readable labels ─────────────────────────────────────────────────────
@@ -124,7 +141,17 @@ export const FIELD_LABELS: Record<string, string> = {
   substationCapacity:   'Substation Capacity (MW)',
   substationDist:       'Distance to Substation (m)',
   gridCircuitDist:      'Distance to Grid Circuit (m)',
-  utilityProvider:      'Utility Provider',
+  utilityProvider:      'Nearest Substation Utility',
+  icaUtility:           'Grid Circuit Utility',
+  sceTerritory:         'In SCE Territory',
+  pgeTerritory:         'In PG&E Territory',
+  ladwpTerritory:       'In LADWP Territory',
+  substationName:       'Nearest Substation',
+  substationVoltage:    'Substation Voltage (kV)',
+  circuitName:          'Grid Circuit Name',
+  circuitVoltage:       'Circuit Voltage (kV)',
+  pvCapacity:           'PV Hosting Capacity (kW)',
+  gridReadinessScore:   'Grid Readiness Score',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

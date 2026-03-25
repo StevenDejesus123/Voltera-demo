@@ -49,6 +49,16 @@ export interface RegionDetails {
   substationDist?: number;
   gridCircuitDist?: number;
   utilityProvider?: string;
+  icaUtility?: string;
+  sceTerritory?: number;
+  pgeTerritory?: number;
+  ladwpTerritory?: number;
+  substationName?: string;
+  substationVoltage?: number;
+  circuitName?: string;
+  circuitVoltage?: number;
+  pvCapacity?: number;
+  gridReadinessScore?: number;
 }
 
 export interface Region {
@@ -66,6 +76,9 @@ export interface Region {
   countyID?: string;
   msaID?: string;
   msaName?: string;
+  // Filterable grid fields embedded at top-level in mockRegions_tract.json
+  gridLoadCapacity?: number | null;
+  gridReadinessScore?: number | null;
 }
 
 export interface Factor {

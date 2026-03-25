@@ -248,22 +248,69 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
       )}
 
       {/* Grid Infrastructure — Tract only */}
-      {(shouldShow('gridLoadCapacity', geoLevel) || shouldShow('substationDist', geoLevel)) &&
+      {shouldShow('gridLoadCapacity', geoLevel) &&
         (details.gridLoadCapacity !== undefined || details.substationCapacity !== undefined ||
          details.substationDist !== undefined || details.gridCircuitDist !== undefined ||
-         details.utilityProvider !== undefined) && (
+         details.utilityProvider !== undefined || details.icaUtility !== undefined ||
+         details.sceTerritory !== undefined || details.pgeTerritory !== undefined || details.ladwpTerritory !== undefined ||
+         details.substationName !== undefined || details.circuitName !== undefined ||
+         details.gridReadinessScore !== undefined) && (
         <CollapsibleSection title="Grid Infrastructure" icon={Zap} iconColor="text-blue-500" isOpen={openSections.has('grid')} onToggle={() => toggle('grid')}>
-          {shouldShow('utilityProvider', geoLevel) && details.utilityProvider && (
-            <DetailItem label="Utility Provider" value={String(details.utilityProvider).toUpperCase()} icon={Zap} />
+          {/* Utility identifiers & names — strings, single-region only */}
+          {!showAggBadges && shouldShow('utilityProvider', geoLevel) && details.utilityProvider && (
+            <DetailItem label="Nearest Substation Utility" value={String(details.utilityProvider).toUpperCase()} icon={Zap} />
           )}
+          {!showAggBadges && shouldShow('substationName', geoLevel) && details.substationName && (
+            <DetailItem label="Nearest Substation" value={String(details.substationName)} icon={Zap} />
+          )}
+          {!showAggBadges && shouldShow('icaUtility', geoLevel) && details.icaUtility && (
+            <DetailItem label="Grid Circuit Utility" value={String(details.icaUtility).toUpperCase()} icon={Zap} />
+          )}
+          {!showAggBadges && shouldShow('circuitName', geoLevel) && details.circuitName && (
+            <DetailItem label="Grid Circuit Name" value={String(details.circuitName)} icon={Zap} />
+          )}
+          {/* Service territory — combined single row for single-region */}
+          {!showAggBadges && shouldShow('sceTerritory', geoLevel) &&
+            (details.sceTerritory !== undefined || details.pgeTerritory !== undefined || details.ladwpTerritory !== undefined) && (() => {
+              const labels = [
+                details.sceTerritory === 1 ? 'SCE' : null,
+                details.pgeTerritory === 1 ? 'PG&E' : null,
+                details.ladwpTerritory === 1 ? 'LADWP' : null,
+              ].filter(Boolean);
+              return <DetailItem label="Service Territory" value={labels.length > 0 ? (labels as string[]).join(', ') : 'None'} icon={MapPin} />;
+            })()}
+          {/* Service territory — individual % rows for multi-region */}
+          {showAggBadges && shouldShow('sceTerritory', geoLevel) && details.sceTerritory !== undefined && (
+            <DetailItem label="In SCE Territory" value={formatDecimal((details.sceTerritory as number) * 100, 0, '', '% of tracts')} aggregation={agg('sceTerritory')} />
+          )}
+          {showAggBadges && shouldShow('pgeTerritory', geoLevel) && details.pgeTerritory !== undefined && (
+            <DetailItem label="In PG&E Territory" value={formatDecimal((details.pgeTerritory as number) * 100, 0, '', '% of tracts')} aggregation={agg('pgeTerritory')} />
+          )}
+          {showAggBadges && shouldShow('ladwpTerritory', geoLevel) && details.ladwpTerritory !== undefined && (
+            <DetailItem label="In LADWP Territory" value={formatDecimal((details.ladwpTerritory as number) * 100, 0, '', '% of tracts')} aggregation={agg('ladwpTerritory')} />
+          )}
+          {/* Grid readiness score */}
+          {shouldShow('gridReadinessScore', geoLevel) && details.gridReadinessScore !== undefined && (
+            <DetailItem label="Grid Readiness Score" value={formatDecimal(details.gridReadinessScore, 1, '', ' / 100')} icon={Zap} aggregation={agg('gridReadinessScore')} />
+          )}
+          {/* Capacity & distance */}
           {shouldShow('gridLoadCapacity', geoLevel) && details.gridLoadCapacity !== undefined && (
             <DetailItem label="Grid Load Capacity" value={formatDecimal(details.gridLoadCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('gridLoadCapacity')} />
+          )}
+          {shouldShow('pvCapacity', geoLevel) && details.pvCapacity !== undefined && (
+            <DetailItem label="PV Hosting Capacity" value={formatDecimal(details.pvCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('pvCapacity')} />
           )}
           {shouldShow('substationCapacity', geoLevel) && details.substationCapacity !== undefined && (
             <DetailItem label="Substation Capacity" value={formatDecimal(details.substationCapacity, 2, '', ' MW')} icon={Zap} aggregation={agg('substationCapacity')} />
           )}
+          {shouldShow('substationVoltage', geoLevel) && details.substationVoltage !== undefined && (
+            <DetailItem label="Substation Voltage" value={formatDecimal(details.substationVoltage, 1, '', ' kV')} aggregation={agg('substationVoltage')} />
+          )}
           {shouldShow('substationDist', geoLevel) && details.substationDist !== undefined && (
             <DetailItem label="Distance to Substation" value={formatNumber(details.substationDist, '', ' m')} aggregation={agg('substationDist')} />
+          )}
+          {shouldShow('circuitVoltage', geoLevel) && details.circuitVoltage !== undefined && (
+            <DetailItem label="Circuit Voltage" value={formatDecimal(details.circuitVoltage, 1, '', ' kV')} aggregation={agg('circuitVoltage')} />
           )}
           {shouldShow('gridCircuitDist', geoLevel) && details.gridCircuitDist !== undefined && (
             <DetailItem label="Distance to Grid Circuit" value={formatNumber(details.gridCircuitDist, '', ' m')} aggregation={agg('gridCircuitDist')} />

@@ -29,6 +29,8 @@ interface FilterPanelProps {
   setCountyRange: (r: [number, number]) => void;
   tractRange: [number, number];
   setTractRange: (r: [number, number]) => void;
+  minGridCapacity?: number;
+  setMinGridCapacity?: (v: number) => void;
   selectedCounty?: Region | null;
   selectedTract?: Region | null;
   multiSelectedCounties?: Region[];
@@ -63,6 +65,8 @@ export function FilterPanel({
   setCountyRange,
   tractRange,
   setTractRange,
+  minGridCapacity = 0,
+  setMinGridCapacity,
   selectedCounty = null,
   selectedTract = null,
   multiSelectedCounties = [],
@@ -545,6 +549,36 @@ export function FilterPanel({
               </Slider.Root>
             </div>
           </div>
+
+          {/* Grid capacity filter — Tract level only */}
+          {setMinGridCapacity && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-600">Min Grid Load Capacity (kW)</span>
+                <span className="text-xs font-medium text-indigo-700">{minGridCapacity > 0 ? `≥ ${minGridCapacity.toLocaleString()} kW` : 'Any'}</span>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={100}
+                  className="w-24 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:border-indigo-400"
+                  value={minGridCapacity}
+                  onChange={e => setMinGridCapacity(Math.max(0, parseInt(e.target.value) || 0))}
+                  placeholder="0"
+                />
+                <span className="text-xs text-gray-400">kW</span>
+                {minGridCapacity > 0 && (
+                  <button
+                    className="text-xs text-indigo-600 hover:underline ml-auto"
+                    onClick={() => setMinGridCapacity(0)}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

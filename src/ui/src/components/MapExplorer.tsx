@@ -73,6 +73,7 @@ export function MapExplorer() {
   const [msaRange, setMsaRange] = useState<[number, number]>([0, 0]);
   const [countyRange, setCountyRange] = useState<[number, number]>([0, 0]);
   const [tractRange, setTractRange] = useState<[number, number]>([0, 0]);
+  const [minGridCapacity, setMinGridCapacity] = useState<number>(0);
   const [selectedMSA, setSelectedMSA] = useState<Region | null>(null);
   const [selectedCounty, setSelectedCounty] = useState<Region | null>(null);
   const [selectedCounties, setSelectedCounties] = useState<Region[]>([]);
@@ -397,7 +398,12 @@ export function MapExplorer() {
 
   const tracts = tractsRaw.filter((r) => {
     const rank = typeof r.rank === 'number' ? r.rank : 0;
-    return isInRange(rank, tractRange) && matchesIdFilter(r.id, selectedTractIds);
+    if (!isInRange(rank, tractRange) || !matchesIdFilter(r.id, selectedTractIds)) return false;
+    if (minGridCapacity > 0) {
+      const cap = r.gridLoadCapacity;
+      if (cap == null || cap < minGridCapacity) return false;
+    }
+    return true;
   });
 
   function handleAddToCompare(region: Region): void {
@@ -824,6 +830,8 @@ export function MapExplorer() {
           setCountyRange={setCountyRange}
           tractRange={tractRange}
           setTractRange={setTractRange}
+          minGridCapacity={minGridCapacity}
+          setMinGridCapacity={setMinGridCapacity}
           selectedCounty={selectedCounty}
           selectedTract={selectedTract}
           multiSelectedCounties={selectedCounties}
