@@ -1,7 +1,7 @@
 import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2, MapPin } from 'lucide-react';
 import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails, CompetitorSite } from '../types';
 import { exportToCSV, exportToGeoJSON, exportToKML, exportToShapefile, ExportOptions } from '../utils/exportUtils';
-import { ensureDetailsLoaded, getRegionDetails } from '../dataLoader/frontendLoader';
+import { ensureDetailsLoaded, getRegionDetails, loadTractDetailsForCounty } from '../dataLoader/frontendLoader';
 import { useState } from 'react';
 import * as Slider from '@radix-ui/react-slider';
 
@@ -142,7 +142,13 @@ export function FilterPanel({
     const regions = getRegionsForExport();
     setIsExporting(true);
     try {
-      await ensureDetailsLoaded(exportLevel);
+      if (exportLevel === 'Tract') {
+        // Tract details are split into per-county chunks — load all required counties in parallel
+        const countyIds = [...new Set(regions.map(r => (r as any).countyID).filter(Boolean))];
+        await Promise.all(countyIds.map(cid => loadTractDetailsForCounty(cid)));
+      } else {
+        await ensureDetailsLoaded(exportLevel);
+      }
 
       const analysisData = new Map<string, RegionDetails>();
       for (const region of regions) {

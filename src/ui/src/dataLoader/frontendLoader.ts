@@ -10,11 +10,16 @@ const loadingState: Record<LevelKey, boolean> = { MSA: false, County: false, Tra
 const loadingProgress: Record<LevelKey, number> = { MSA: 0, County: 0, Tract: 0 };
 
 // Per-level details sidecar cache: id → { factors, details }
+// Tract is initialized as {} (never loads 112MB monolithic file — uses per-county chunks instead)
 const detailsCache: Record<LevelKey, Record<string, { factors: any[]; details: any }> | null> = {
     MSA: null,
     County: null,
-    Tract: null,
+    Tract: {},
 };
+
+// Track which county detail chunks have already been fetched (avoids duplicate requests)
+const tractCountyDetailsFetched = new Set<string>();
+const tractCountyDetailsLoading = new Map<string, Promise<void>>();
 const detailsLoadingState: Record<LevelKey, boolean> = { MSA: false, County: false, Tract: false };
 const detailsLoadingProgress: Record<LevelKey, number> = { MSA: 0, County: 0, Tract: 0 };
 
@@ -121,6 +126,36 @@ async function loadDetails(level: LevelKey) {
     } finally {
         detailsLoadingState[level] = false;
     }
+}
+
+/** Load details for a single county's tracts from the per-county chunk file.
+ *  Idempotent — returns immediately if already fetched or in flight. */
+async function _loadTractDetailsForCounty(countyId: string): Promise<void> {
+    if (!countyId) return;
+    if (tractCountyDetailsFetched.has(countyId)) return;
+    // If already in flight, reuse the same promise
+    const inFlight = tractCountyDetailsLoading.get(countyId);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+        try {
+            const res = await fetch(`${BASE}/regionDetails_tract/county_${countyId}.json`);
+            if (!res.ok) throw new Error(String(res.status));
+            const chunk: Record<string, { factors: any[]; details: any }> = await res.json();
+            // Merge into Tract cache (already initialized as {})
+            Object.assign(detailsCache['Tract']!, chunk);
+            tractCountyDetailsFetched.add(countyId);
+            window.dispatchEvent(new CustomEvent('frontend:details:updated', { detail: { level: 'Tract' } }));
+        } catch (e) {
+            console.warn('Failed to load tract details for county', countyId, e);
+            tractCountyDetailsFetched.add(countyId); // mark done to avoid retries
+        } finally {
+            tractCountyDetailsLoading.delete(countyId);
+        }
+    })();
+
+    tractCountyDetailsLoading.set(countyId, promise);
+    return promise;
 }
 
 // ── Salesforce enrichment ────────────────────────────────────────────────────
@@ -258,9 +293,11 @@ export function getTractsForCounties(
 }
 
 /** Guarantees the details sidecar for a level is loaded before resolving.
- *  If already loaded, resolves immediately. If loading in progress, waits for it. */
+ *  If already loaded, resolves immediately. If loading in progress, waits for it.
+ *  For Tract: always resolves immediately (per-county chunks are loaded separately). */
 export async function ensureDetailsLoaded(geoLevel: GeoLevel): Promise<void> {
     const key = toKey(geoLevel);
+    if (key === 'Tract') return;                       // Tract uses per-county chunks — always ready
     if (detailsCache[key] !== null) return;           // already loaded
     if (detailsLoadingState[key]) {                    // loading in progress — wait
         await new Promise<void>(resolve => {
@@ -273,6 +310,13 @@ export async function ensureDetailsLoaded(geoLevel: GeoLevel): Promise<void> {
         return;
     }
     await loadDetails(key);                            // trigger and await
+}
+
+/** Load per-county tract details chunk on demand.
+ *  Call this whenever a tract region is selected or before exporting tract-level data. */
+export function loadTractDetailsForCounty(countyId: string | null | undefined): Promise<void> {
+    if (!countyId) return Promise.resolve();
+    return _loadTractDetailsForCounty(countyId);
 }
 
 /** Returns details for a region if the sidecar is loaded; null if still loading. */

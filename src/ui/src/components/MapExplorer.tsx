@@ -8,7 +8,7 @@ import { SavedViewsPanel } from './SavedViewsPanel';
 import { TimelineSlider } from './TimelineSlider';
 import { CompetitorTrackerPanel } from './CompetitorTrackerPanel';
 import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState } from '../types';
-import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, getRegionDetails } from '../dataLoader/frontendLoader';
+import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, loadTractDetailsForCounty, getRegionDetails } from '../dataLoader/frontendLoader';
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
 import { getCompetitorSites, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
 import { loadSalesforceData } from '../dataLoader/salesforceLoader';
@@ -260,7 +260,9 @@ export function MapExplorer() {
   // Tracts take priority (deeper drill-down) to match multi-region render order
   useEffect(() => {
     if (selectedTracts.length > 1) {
-      loadDetailsOnDemand(selectedTracts[0].geoLevel);
+      // Tract uses per-county chunks — load for all unique counties in the selection
+      const countyIds = [...new Set(selectedTracts.map(t => (t as any).countyID).filter(Boolean))];
+      countyIds.forEach(cid => loadTractDetailsForCounty(cid));
       if (!getRegionDetails(selectedTracts[0].id, selectedTracts[0].geoLevel)) {
         setDetailsLoading(true);
         setDetailsProgress(0);
@@ -379,7 +381,12 @@ export function MapExplorer() {
       setSelectedRegionDetails(null);
       return;
     }
-    loadDetailsOnDemand(region.geoLevel);
+    // Tract uses per-county chunks; others load monolithic sidecar
+    if (region.geoLevel === 'Tract' || (region as any).geoLevel?.toLowerCase() === 'tract') {
+      loadTractDetailsForCounty((region as any).countyID);
+    } else {
+      loadDetailsOnDemand(region.geoLevel);
+    }
     // If already in cache, populate immediately without waiting for the event
     const cached = getRegionDetails(region.id, region.geoLevel);
     setSelectedRegionDetails(cached);
