@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Region, GeoLevel, MapViewState, CompetitorSite } from '../types';
+import { Region, GeoLevel, MapViewState, CompetitorSite, SubstationFeature } from '../types';
 import {
   MapPin, Table, Map as MapIcon, Eye, GitCompare,
   ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2,
@@ -13,6 +13,7 @@ import {
   loadZoningData, loadTractZoning, getZoningDistrictsForTract,
   isTractZoningLoaded, getZoningTractSummary, isZoningLoaded, getZoneCategoryOptions,
 } from '../dataLoader/zoningLoader';
+import type { CircuitFeature } from './CircuitMapLayer';
 
 interface GeoPanelProps {
   title: string;
@@ -34,6 +35,13 @@ interface GeoPanelProps {
   // Market Intelligence layer
   competitorSites?: CompetitorSite[];
   showCompetitorLayer?: boolean;
+  // Circuit polylines + Substation pins (Tract level)
+  circuits?: CircuitFeature[];
+  substations?: SubstationFeature[];
+  nearbySubstationIds?: Set<string>;
+  emphasizedSubstationIds?: Set<string>;
+  highlightedSubstationId?: string | null;
+  onClickSubstation?: (s: SubstationFeature) => void;
 }
 
 type ViewMode = 'map' | 'table';
@@ -60,6 +68,12 @@ export function GeoPanel({
   onMapViewChange,
   competitorSites = [],
   showCompetitorLayer = false,
+  circuits = [],
+  substations = [],
+  nearbySubstationIds,
+  emphasizedSubstationIds,
+  highlightedSubstationId,
+  onClickSubstation,
 }: GeoPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [sortField, setSortField] = useState<SortField>('rank');
@@ -522,6 +536,12 @@ export function GeoPanel({
                     zoningDistricts={showZoning && geoLevel === 'Tract' ? filteredDistricts : undefined}
                     zoningColorMode={zoningColorMode}
                     onSelectZoningDistrict={setSelectedZoningDistrict}
+                    circuits={circuits}
+                    substations={substations}
+                    nearbySubstationIds={nearbySubstationIds}
+                    emphasizedSubstationIds={emphasizedSubstationIds}
+                    highlightedSubstationId={highlightedSubstationId}
+                    onClickSubstation={onClickSubstation}
                   />
 
                   {/* Zoning detail card */}

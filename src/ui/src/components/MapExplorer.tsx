@@ -1,14 +1,20 @@
 import { useState, useEffect, useMemo, useRef, Dispatch, SetStateAction } from 'react';
 import { FilterPanel } from './FilterPanel';
 import { GeoPanel } from './GeoPanel';
+import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds } from './UtilityGridPanel';
+import type { SubstationFilters } from './UtilityGridPanel';
+import { loadOverrides, applyOverrides, saveOverride, removeOverride, exportOverridesJson } from '../utils/substationOverrides';
+import type { OverrideMap } from '../utils/substationOverrides';
+import type { CircuitFeature } from './CircuitMapLayer';
 import { ExplainabilityPanel } from './ExplainabilityPanel';
 import { ComparePanel } from './ComparePanel';
 import { WhatIfPanel } from './WhatIfPanel';
 import { SavedViewsPanel } from './SavedViewsPanel';
 import { TimelineSlider } from './TimelineSlider';
 import { CompetitorTrackerPanel } from './CompetitorTrackerPanel';
-import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState } from '../types';
-import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, loadTractDetailsForCounty, getRegionDetails } from '../dataLoader/frontendLoader';
+import { SubstationOverridePanel } from './SubstationOverridePanel';
+import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState, SubstationFeature } from '../types';
+import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, loadTractDetailsForCounty, loadTractRegionsForCounty, getRegionDetails } from '../dataLoader/frontendLoader';
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
 import { getCompetitorSites, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
 import { loadSalesforceData } from '../dataLoader/salesforceLoader';
@@ -110,6 +116,87 @@ export function MapExplorer() {
   const [competitorSegments, setCompetitorSegments] = useState<Set<string>>(new Set());
   const [competitorDataLoaded, setCompetitorDataLoaded] = useState(false);
 
+  // Substation data — all substations loaded once, nearby derived from selected tract details
+  const [allSubstations, setAllSubstations] = useState<SubstationFeature[]>([]);
+  const [highlightedSubstationId, setHighlightedSubstationId] = useState<string | null>(null);
+
+  // Circuit polyline data — loaded on-demand per county (same pattern as tract_polygons/)
+  const [circuitsByCounty, setCircuitsByCounty] = useState<Record<string, CircuitFeature[]>>({});
+  const circuitCountyFetchedRef = useRef<Set<string>>(new Set());
+
+  // Utility Grid panel + filter state
+  const [showUtilityPanel, setShowUtilityPanel] = useState(false);
+  const [showSubstationLayer, setShowSubstationLayer] = useState(true);
+  const [showAllSubstations, setShowAllSubstations] = useState(false);
+  const [substationFilters, setSubstationFilters] = useState<SubstationFilters>(defaultSubstationFilters());
+
+  // Voltera override layer — persisted in localStorage
+  const [substationOverrides, setSubstationOverrides] = useState<OverrideMap>(() => loadOverrides());
+  const [editingSubstationId, setEditingSubstationId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/data/exports/substations.json')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: SubstationFeature[]) => setAllSubstations(data))
+      .catch(() => {});
+  }, []);
+
+  // Load circuits on-demand for the selected tract's county (same pattern as tract_polygons/)
+  useEffect(() => {
+    const countyId = (selectedTract as any)?.countyID as string | undefined;
+    if (!countyId || circuitCountyFetchedRef.current.has(countyId)) return;
+    circuitCountyFetchedRef.current.add(countyId);
+    fetch(`/data/exports/circuits/county_${countyId}.json`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: CircuitFeature[]) =>
+        setCircuitsByCounty(prev => ({ ...prev, [countyId]: data }))
+      )
+      .catch(() => {});
+  }, [selectedTract]);
+
+  // Circuits near the selected tract only — filtered from the county data by bounding box.
+  // Census tracts are ~1–8 km across; ±0.06° (~6.5 km) captures circuits within + immediately around the tract.
+  const allCircuits = useMemo<CircuitFeature[]>(() => {
+    const countyId = (selectedTract as any)?.countyID as string | undefined;
+    if (!countyId || !selectedTract) return [];
+    const county = circuitsByCounty[countyId];
+    if (!county) return [];
+
+    const { lat, lng } = selectedTract;
+    if (lat == null || lng == null) return county; // no centroid — show all
+
+    const D = 0.06; // ~6.5 km bounding box half-width
+    const minLat = lat - D, maxLat = lat + D;
+    const minLng = lng - D, maxLng = lng + D;
+
+    return county.filter(c =>
+      c.coords.some(line =>
+        line.some(([cLng, cLat]) =>
+          cLat >= minLat && cLat <= maxLat && cLng >= minLng && cLng <= maxLng
+        )
+      )
+    );
+  }, [selectedTract, circuitsByCounty]);
+
+  // Clear substation highlight when the selected tract changes
+  useEffect(() => { setHighlightedSubstationId(null); }, [selectedTract?.id]);
+
+  // Apply Voltera overrides on top of raw substation data
+  const allSubstationsWithOverrides = useMemo(
+    () => applyOverrides(allSubstations, substationOverrides),
+    [allSubstations, substationOverrides],
+  );
+
+  // Emphasis IDs — substations matching the active filters; empty = no filter active
+  const emphasizedSubstationIds = useMemo(
+    () => getEmphasisIds(allSubstationsWithOverrides, substationFilters),
+    [allSubstationsWithOverrides, substationFilters],
+  );
+
+  // Count of emphasized substations (for the panel header)
+  const emphasizedCount = emphasizedSubstationIds.size;
+
+
   // Load competitor + Salesforce data on mount and listen for load events
   useEffect(() => {
     loadCompetitorData();
@@ -155,6 +242,46 @@ export function MapExplorer() {
   const [detailsProgress, setDetailsProgress] = useState(-1);
   // Incrementing this forces MapExplorer to re-render and re-read the data cache
   const [dataLoadTick, setDataLoadTick] = useState(0);
+
+  // Derive nearby substations for the currently selected tract from its loaded details.
+  // Depends on selectedRegionDetails so it re-runs after the county chunk finishes loading.
+  const nearbySubstations = useMemo<SubstationFeature[]>(() => {
+    const region = selectedTract;
+    if (!region) return [];
+    const d = getRegionDetails(region.id, region.geoLevel);
+    const nearby = d?.details?.nearbySubstations;
+    if (Array.isArray(nearby) && nearby.length > 0) return nearby as SubstationFeature[];
+    // Fallback: haversine filter on allSubstations if details not yet loaded
+    if (allSubstations.length === 0 || !region.lat || !region.lng) return [];
+    const R = 6371000;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    return allSubstations
+      .map(s => {
+        const dLat = toRad(s.lat - region.lat);
+        const dLng = toRad(s.lng - region.lng);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(region.lat)) * Math.cos(toRad(s.lat)) * Math.sin(dLng / 2) ** 2;
+        const distM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return { ...s, distM: Math.round(distM) };
+      })
+      .filter(s => s.distM! <= 50000)
+      .sort((a, b) => (a.distM ?? 0) - (b.distM ?? 0));
+  }, [selectedTract, selectedRegionDetails, allSubstations]);
+
+  // Set of nearby substation IDs for the map layer to pulse-highlight
+  const nearbySubstationIds = useMemo(
+    () => new Set(nearbySubstations.map(s => s.id)),
+    [nearbySubstations],
+  );
+
+  // Visible substations passed to the map — pre-filtered so the `substations`
+  // prop array itself shrinks when a tract is active, preventing Leaflet stale
+  // DivIcon markers from lingering (e.g. NorCal pins after selecting an LA tract).
+  const visibleSubstations = useMemo(() => {
+    if (!showSubstationLayer) return [];
+    if (selectedTract != null && !showAllSubstations) return nearbySubstations;
+    return allSubstationsWithOverrides;
+  }, [showSubstationLayer, selectedTract, showAllSubstations, nearbySubstations, allSubstationsWithOverrides]);
+
   // Pending tract restoration from saved view — applied in two stages:
   //   Stage 1 (county data loads): set selectedCounty + trigger tract load
   //   Stage 2 (tract data loads):  apply selectedTracts / selectedTract
@@ -198,8 +325,8 @@ export function MapExplorer() {
       const reranked = reRankByOriginalOrder(allCounties);
       effectiveCounty = reranked.find(c => c.id === countyId) ?? rawCounty;
       setSelectedCounty(effectiveCounty);
-      loadLevelOnDemand('Tract');
       loadTractPolygonsForCounty(countyId);
+      loadTractRegionsForCounty(countyId);
       // Fall through — if tract data is already in cache (fast / browser-cached load),
       // apply the selection right now rather than waiting for another dataLoadTick.
     }
@@ -369,8 +496,10 @@ export function MapExplorer() {
   // Lazy-load Tract data + per-county polygons when a County is first selected
   useEffect(() => {
     if (countyIdsForTracts.length > 0) {
-      loadLevelOnDemand('Tract');
-      countyIdsForTracts.forEach(id => loadTractPolygonsForCounty(id));
+      countyIdsForTracts.forEach(id => {
+        loadTractPolygonsForCounty(id);
+        loadTractRegionsForCounty(id);
+      });
     }
   }, [selectedCounty?.id, selectedCounties.length]);
 
@@ -537,6 +666,9 @@ export function MapExplorer() {
         detailsProgress={detailsProgress}
         onClose={handleCloseRegion}
         onAddToCompare={undefined} // Disabled - Coming Soon feature
+        nearbySubstations={activeRegion?.geoLevel?.toUpperCase() === 'TRACT' ? nearbySubstations : undefined}
+        highlightedSubstationId={highlightedSubstationId}
+        onHighlightSubstation={id => setHighlightedSubstationId(prev => prev === id ? null : id)}
         {...collapseProps}
       />
     );
@@ -551,7 +683,32 @@ export function MapExplorer() {
           <div className="flex items-center gap-3">
             <div className="relative">
               <button
-                onClick={() => setShowCompetitorPanel(!showCompetitorPanel)}
+                onClick={() => { setShowUtilityPanel(p => !p); setShowCompetitorPanel(false); }}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  showUtilityPanel
+                    ? 'bg-yellow-500 text-white'
+                    : 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700'
+                }`}
+              >
+                Utility Grid
+              </button>
+              {showUtilityPanel && (
+                <UtilityGridPanel
+                  onClose={() => setShowUtilityPanel(false)}
+                  allSubstations={allSubstations}
+                  filteredCount={emphasizedCount}
+                  filters={substationFilters}
+                  onFiltersChange={setSubstationFilters}
+                  showLayer={showSubstationLayer}
+                  onToggleLayer={setShowSubstationLayer}
+                  showAll={showAllSubstations}
+                  onToggleShowAll={setShowAllSubstations}
+                />
+              )}
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => { setShowCompetitorPanel(p => !p); setShowUtilityPanel(false); }}
                 className={`px-4 py-2 rounded-lg transition-colors ${
                   showCompetitorPanel
                     ? 'bg-indigo-600 text-white'
@@ -646,7 +803,8 @@ export function MapExplorer() {
                         const reranked = reRankByOriginalOrder(allCounties);
                         const county = reranked.find(c => c.id === view.drillDownCountyId) ?? rawCounty;
                         setSelectedCounty(county);
-                        loadLevelOnDemand('Tract');
+                        loadTractPolygonsForCounty(view.drillDownCountyId);
+                        loadTractRegionsForCounty(view.drillDownCountyId);
                       }
                     } else {
                       setSelectedCounty(null);
@@ -910,6 +1068,15 @@ export function MapExplorer() {
             onMapViewChange={setTractMapView}
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
+            circuits={showSubstationLayer ? allCircuits : []}
+            substations={visibleSubstations}
+            nearbySubstationIds={nearbySubstationIds}
+            emphasizedSubstationIds={emphasizedSubstationIds}
+            highlightedSubstationId={highlightedSubstationId}
+            onClickSubstation={s => {
+              setHighlightedSubstationId(prev => prev === s.id ? null : s.id);
+              setEditingSubstationId(prev => prev === s.id ? null : s.id);
+            }}
           />
         </div>
 
@@ -937,6 +1104,20 @@ export function MapExplorer() {
         )}
 
         {renderRegionAnalysisPanel()}
+
+        {/* Substation override editor */}
+        {editingSubstationId && (() => {
+          const raw = allSubstations.find(s => s.id === editingSubstationId);
+          if (!raw) return null;
+          return (
+            <SubstationOverridePanel
+              substation={raw}
+              overrides={substationOverrides}
+              onOverridesChange={setSubstationOverrides}
+              onClose={() => setEditingSubstationId(null)}
+            />
+          );
+        })()}
       </div>
     </div>
   );

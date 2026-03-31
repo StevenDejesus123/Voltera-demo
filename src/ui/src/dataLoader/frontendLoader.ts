@@ -9,6 +9,20 @@ const cache: Record<LevelKey, Region[]> = { MSA: [], County: [], Tract: [] };
 const loadingState: Record<LevelKey, boolean> = { MSA: false, County: false, Tract: false };
 const loadingProgress: Record<LevelKey, number> = { MSA: 0, County: 0, Tract: 0 };
 
+// County-keyed index for O(1) tract lookup — built once after Tract cache loads
+const tractsByCounty = new Map<string, Region[]>();
+
+function buildTractIndex(tracts: Region[]): void {
+    tractsByCounty.clear();
+    for (const t of tracts) {
+        const cid = (t as any).countyID ?? (t as any).county_id ?? (t as any).parent_id ?? (t as any).county;
+        if (!cid) continue;
+        let bucket = tractsByCounty.get(cid);
+        if (!bucket) { bucket = []; tractsByCounty.set(cid, bucket); }
+        bucket.push(t);
+    }
+}
+
 // Per-level details sidecar cache: id → { factors, details }
 // Tract is initialized as {} (never loads 112MB monolithic file — uses per-county chunks instead)
 const detailsCache: Record<LevelKey, Record<string, { factors: any[]; details: any }> | null> = {
@@ -16,6 +30,10 @@ const detailsCache: Record<LevelKey, Record<string, { factors: any[]; details: a
     County: null,
     Tract: {},
 };
+
+// Track which county region chunks have already been fetched for mockRegions_tract
+const tractCountyRegionsFetched = new Set<string>();
+const tractCountyRegionsLoading = new Map<string, Promise<void>>();
 
 // Track which county detail chunks have already been fetched (avoids duplicate requests)
 const tractCountyDetailsFetched = new Set<string>();
@@ -29,8 +47,10 @@ function toKey(g: string): LevelKey {
     return 'County';
 }
 
-/** Ensure a level's regions are loaded (triggers fetch if empty and not already loading). */
+/** Ensure a level's regions are loaded (triggers fetch if empty and not already loading).
+ *  Tract is never loaded monolithically — per-county chunks are loaded via loadTractRegionsForCounty. */
 function ensureLoaded(key: LevelKey): void {
+    if (key === 'Tract') return; // Tract uses per-county chunks — never load the 25MB monolith
     if (!cache[key].length && !loadingState[key]) loadLevel(key);
 }
 
@@ -91,6 +111,7 @@ async function loadLevel(level: LevelKey) {
             return r as Region;
         });
         cache[level] = normalized;
+        if (level === 'Tract') buildTractIndex(normalized);
         enrichWithSalesforceData();
         loadingProgress[level] = 100;
         window.dispatchEvent(new CustomEvent('frontend:regions:updated', { detail: { level } }));
@@ -155,6 +176,49 @@ async function _loadTractDetailsForCounty(countyId: string): Promise<void> {
     })();
 
     tractCountyDetailsLoading.set(countyId, promise);
+    return promise;
+}
+
+/** Load mockRegions for a single county's tracts from the per-county chunk file.
+ *  Merges into the Tract cache and rebuilds the county index. Idempotent. */
+async function _loadTractRegionsForCounty(countyId: string): Promise<void> {
+    if (!countyId) return;
+    if (tractCountyRegionsFetched.has(countyId)) return;
+    const inFlight = tractCountyRegionsLoading.get(countyId);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+        try {
+            const res = await fetch(`${BASE}/mockRegions_tract/county_${countyId}.json`);
+            if (!res.ok) throw new Error(String(res.status));
+            const raw: any[] = await res.json();
+            const normalized: Region[] = raw.map((it: any) => {
+                const r: any = { ...it };
+                r.msaID = r.msaID ?? r.msa_id ?? r.MSAID ?? r.msaid ?? r.msa ?? r.MSA ?? null;
+                r.countyID = r.countyID ?? r.county_id ?? r.COUNTYID ?? r.countyid ?? r.county ?? r.COUNTY ?? null;
+                r.geoLevel = r.geoLevel ?? r.geo_level ?? 'TRACT';
+                return r as Region;
+            });
+            // Merge into flat cache + update county index
+            cache['Tract'] = [...cache['Tract'], ...normalized];
+            for (const t of normalized) {
+                const cid = (t as any).countyID;
+                if (!cid) continue;
+                let bucket = tractsByCounty.get(cid);
+                if (!bucket) { bucket = []; tractsByCounty.set(cid, bucket); }
+                bucket.push(t);
+            }
+            tractCountyRegionsFetched.add(countyId);
+            window.dispatchEvent(new CustomEvent('frontend:regions:updated', { detail: { level: 'Tract' } }));
+        } catch (e) {
+            console.warn('Failed to load tract regions for county', countyId, e);
+            tractCountyRegionsFetched.add(countyId); // avoid retries
+        } finally {
+            tractCountyRegionsLoading.delete(countyId);
+        }
+    })();
+
+    tractCountyRegionsLoading.set(countyId, promise);
     return promise;
 }
 
@@ -282,13 +346,22 @@ export function getTractsForCounties(
     _activeScenario?: WhatIfScenario | null,
     _selectedIds?: string[]
 ): Region[] {
-    const key: LevelKey = 'Tract';
-    ensureLoaded(key);
+    ensureLoaded('Tract');
     if (countyIds.length === 0) return [];
+    // O(1) per county via pre-built index instead of O(85k) linear scan
+    if (tractsByCounty.size > 0) {
+        const results: Region[] = [];
+        for (const cid of countyIds) {
+            const bucket = tractsByCounty.get(cid);
+            if (bucket) results.push(...bucket);
+        }
+        return results;
+    }
+    // Fallback: index not yet built (data still loading)
     const countyIdSet = new Set(countyIds);
-    return cache[key].filter((r) => {
+    return cache['Tract'].filter((r) => {
         const cid = (r as any).countyID ?? (r as any).county_id ?? (r as any).parent_id ?? (r as any).county;
-        return countyIdSet.has(r.id) || countyIdSet.has(cid);
+        return countyIdSet.has(cid);
     });
 }
 
@@ -317,6 +390,13 @@ export async function ensureDetailsLoaded(geoLevel: GeoLevel): Promise<void> {
 export function loadTractDetailsForCounty(countyId: string | null | undefined): Promise<void> {
     if (!countyId) return Promise.resolve();
     return _loadTractDetailsForCounty(countyId);
+}
+
+/** Load per-county tract region list chunk on demand (replaces monolithic mockRegions_tract.json).
+ *  Call this when a county is selected and its tracts need to be shown on the map. */
+export function loadTractRegionsForCounty(countyId: string | null | undefined): Promise<void> {
+    if (!countyId) return Promise.resolve();
+    return _loadTractRegionsForCounty(countyId);
 }
 
 /** Returns details for a region if the sidecar is loaded; null if still loading. */

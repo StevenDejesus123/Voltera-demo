@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen, ChevronRight } from 'lucide-react';
-import { Region, GeoLevel, RegionDetails } from '../types';
+import { Region, GeoLevel, RegionDetails, SubstationFeature } from '../types';
 import { getSalesforceMSASummary, loadSalesforceData } from '../dataLoader/salesforceLoader';
 import { type AggType, aggregateDetails, resolveAggType, shouldShow } from '../utils/analysisUtils';
+import { generateGridInsight, type InsightLevel } from '../utils/gridInsight';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,10 @@ interface ExplainabilityPanelProps {
   detailsProgress?: number;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Nearby substations for the selected tract (single-region mode only) */
+  nearbySubstations?: SubstationFeature[];
+  highlightedSubstationId?: string | null;
+  onHighlightSubstation?: (id: string) => void;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -119,6 +124,9 @@ interface DetailSectionsProps {
   geoLevel: GeoLevel | string;
   showAggBadges?: boolean;
   isAirportTract?: boolean;
+  nearbySubstations?: SubstationFeature[];
+  highlightedSubstationId?: string | null;
+  onHighlightSubstation?: (id: string) => void;
 }
 
 function CollapsibleSection({
@@ -153,8 +161,9 @@ function CollapsibleSection({
   );
 }
 
-function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: DetailSectionsProps) {
+function DetailSections({ details, geoLevel, showAggBadges, isAirportTract, nearbySubstations, highlightedSubstationId, onHighlightSubstation }: DetailSectionsProps) {
   const [openSections, setOpenSections] = useState<Set<string>>(new Set());
+  const [substationsExpanded, setSubstationsExpanded] = useState(false);
 
   const toggle = (key: string) => {
     setOpenSections(prev => {
@@ -260,9 +269,89 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
           {!showAggBadges && shouldShow('utilityProvider', geoLevel) && details.utilityProvider && (
             <DetailItem label="Nearest Substation Utility" value={String(details.utilityProvider).toUpperCase()} icon={Zap} />
           )}
-          {!showAggBadges && shouldShow('substationName', geoLevel) && details.substationName && (
-            <DetailItem label="Nearest Substation" value={String(details.substationName)} icon={Zap} />
-          )}
+          {/* Nearby substations list — replaces single substationName when data is available */}
+          {!showAggBadges && shouldShow('substationName', geoLevel) && (() => {
+            const list = nearbySubstations && nearbySubstations.length > 0 ? nearbySubstations : null;
+            if (list) {
+              const PREVIEW = 4;
+              const maxDistM = Math.max(...list.map(s => s.distM ?? 0));
+              const visible = substationsExpanded ? list : list.slice(0, PREVIEW);
+              const hiddenCount = list.length - PREVIEW;
+              return (
+                <div className="py-1">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Nearby Substations <span className="text-gray-400 font-normal normal-case">({list.length})</span>
+                    </p>
+                    {hiddenCount > 0 && (
+                      <button
+                        onClick={() => setSubstationsExpanded(e => !e)}
+                        className="text-[10px] text-blue-500 hover:text-blue-700 font-medium"
+                      >
+                        {substationsExpanded ? 'Show less' : `+${hiddenCount} more`}
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {visible.map((s, i) => {
+                      const isHL = s.id === highlightedSubstationId;
+                      const distFmt = s.distM != null
+                        ? s.distM >= 1000 ? `${(s.distM / 1000).toFixed(1)} km` : `${Math.round(s.distM)} m`
+                        : null;
+                      const distPct = maxDistM > 0 && s.distM != null ? Math.round((s.distM / maxDistM) * 100) : 0;
+                      const capColor = s.capacityMw == null || s.capacityMw <= 0 ? '#ef4444'
+                        : s.capacityMw < 5 ? '#f97316'
+                        : s.capacityMw <= 10 ? '#eab308'
+                        : '#22c55e';
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => onHighlightSubstation?.(s.id)}
+                          className={`w-full text-left px-2 py-1.5 rounded-md text-xs transition-all ${
+                            isHL
+                              ? 'bg-amber-50 border border-amber-300 shadow-sm ring-1 ring-amber-200'
+                              : 'bg-gray-50 hover:bg-gray-100 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[10px] font-bold text-gray-400 w-3.5 shrink-0">{i + 1}</span>
+                              <span className={`font-medium truncate ${isHL ? 'text-amber-800' : 'text-gray-800'}`}>
+                                {s.name || 'Unnamed'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-gray-400 shrink-0 uppercase">{s.utility}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            {/* Distance bar */}
+                            <div className="flex-1 h-1 rounded-full bg-gray-200 overflow-hidden">
+                              <div className="h-full rounded-full bg-blue-300" style={{ width: `${distPct}%` }} />
+                            </div>
+                            <span className="text-[10px] text-gray-500 w-12 text-right shrink-0">{distFmt ?? '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {s.capacityMw != null && (
+                              <span className="text-[10px] font-medium" style={{ color: capColor }}>
+                                {s.capacityMw.toFixed(1)} MW
+                              </span>
+                            )}
+                            {s.voltageKv != null && (
+                              <span className="text-[10px] text-gray-400">{s.voltageKv} kV</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
+            // Fallback to single name from details
+            if (details.substationName) {
+              return <DetailItem label="Nearest Substation" value={String(details.substationName)} icon={Zap} />;
+            }
+            return null;
+          })()}
           {!showAggBadges && shouldShow('icaUtility', geoLevel) && details.icaUtility && (
             <DetailItem label="Grid Circuit Utility" value={String(details.icaUtility).toUpperCase()} icon={Zap} />
           )}
@@ -295,13 +384,13 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
           )}
           {/* Capacity & distance */}
           {shouldShow('gridLoadCapacity', geoLevel) && details.gridLoadCapacity !== undefined && (
-            <DetailItem label="Grid Load Capacity" value={formatDecimal(details.gridLoadCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('gridLoadCapacity')} />
+            <DetailItem label="Load Availability" value={formatDecimal(details.gridLoadCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('gridLoadCapacity')} />
           )}
           {shouldShow('pvCapacity', geoLevel) && details.pvCapacity !== undefined && (
-            <DetailItem label="PV Hosting Capacity" value={formatDecimal(details.pvCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('pvCapacity')} />
+            <DetailItem label="PV Load Availability" value={formatDecimal(details.pvCapacity, 1, '', ' kW')} icon={Zap} aggregation={agg('pvCapacity')} />
           )}
           {shouldShow('substationCapacity', geoLevel) && details.substationCapacity !== undefined && (
-            <DetailItem label="Substation Capacity" value={formatDecimal(details.substationCapacity, 2, '', ' MW')} icon={Zap} aggregation={agg('substationCapacity')} />
+            <DetailItem label="Substation Load Availability" value={formatDecimal(details.substationCapacity, 2, '', ' MW')} icon={Zap} aggregation={agg('substationCapacity')} />
           )}
           {shouldShow('substationVoltage', geoLevel) && details.substationVoltage !== undefined && (
             <DetailItem label="Substation Voltage" value={formatDecimal(details.substationVoltage, 1, '', ' kV')} aggregation={agg('substationVoltage')} />
@@ -315,6 +404,48 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract }: De
           {shouldShow('gridCircuitDist', geoLevel) && details.gridCircuitDist !== undefined && (
             <DetailItem label="Distance to Grid Circuit" value={formatNumber(details.gridCircuitDist, '', ' m')} aggregation={agg('gridCircuitDist')} />
           )}
+          {/* Grid Assessment — single-region tract only */}
+          {!showAggBadges && (() => {
+            const insight = generateGridInsight(details, nearbySubstations);
+            if (!insight.capacity && !insight.access && !insight.voltage && !insight.territory) return null;
+            const LEVEL_STYLES: Record<InsightLevel, { bar: string; badge: string; bg: string; text: string }> = {
+              strong:   { bar: 'bg-green-500',  badge: 'bg-green-100 text-green-800',  bg: 'bg-green-50',  text: 'text-green-800' },
+              moderate: { bar: 'bg-yellow-500', badge: 'bg-yellow-100 text-yellow-800', bg: 'bg-yellow-50', text: 'text-yellow-800' },
+              limited:  { bar: 'bg-orange-500', badge: 'bg-orange-100 text-orange-800', bg: 'bg-orange-50', text: 'text-orange-800' },
+              critical: { bar: 'bg-red-500',    badge: 'bg-red-100 text-red-800',       bg: 'bg-red-50',    text: 'text-red-800' },
+            };
+            const s = LEVEL_STYLES[insight.level];
+            return (
+              <div className={`mt-2 rounded-lg border border-gray-200 overflow-hidden`}>
+                {/* Header bar */}
+                <div className={`${s.bg} px-3 py-2 flex items-center gap-2 border-b border-gray-200`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${s.badge}`}>
+                    Grid Assessment
+                  </span>
+                  <span className={`text-xs font-medium ${s.text}`}>{insight.headline}</span>
+                </div>
+                {/* Insight bullets */}
+                <div className="px-3 py-2 space-y-2">
+                  {[
+                    { icon: '⚡', text: insight.capacity },
+                    { icon: '📍', text: insight.access },
+                    { icon: '🔌', text: insight.voltage },
+                    { icon: '🏢', text: insight.territory },
+                  ].filter(r => r.text).map((row, i) => (
+                    <p key={i} className="text-[11px] text-gray-600 leading-relaxed flex gap-1.5">
+                      <span className="shrink-0 mt-0.5">{row.icon}</span>
+                      <span>{row.text}</span>
+                    </p>
+                  ))}
+                  {/* Recommendation */}
+                  <div className={`mt-1 pt-2 border-t border-gray-200`}>
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Recommendation</p>
+                    <p className="text-[11px] text-gray-700 leading-relaxed">{insight.recommendation}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </CollapsibleSection>
       )}
 
@@ -438,6 +569,9 @@ export function ExplainabilityPanel({
   detailsProgress = -1,
   collapsed = false,
   onToggleCollapse,
+  nearbySubstations,
+  highlightedSubstationId,
+  onHighlightSubstation,
 }: ExplainabilityPanelProps) {
 
   // ── Collapsed state ────────────────────────────────────────────────────────
@@ -715,6 +849,9 @@ export function ExplainabilityPanel({
             geoLevel={singleRegion.geoLevel}
             showAggBadges={false}
             isAirportTract={singleRegion.geoLevel.toUpperCase() === 'TRACT'}
+            nearbySubstations={nearbySubstations}
+            highlightedSubstationId={highlightedSubstationId}
+            onHighlightSubstation={onHighlightSubstation}
           />
         )}
 

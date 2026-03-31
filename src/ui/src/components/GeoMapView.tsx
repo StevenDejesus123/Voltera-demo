@@ -3,12 +3,15 @@ import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import { Region, GeoLevel, MapViewState, CompetitorSite } from '../types';
+import { Region, GeoLevel, MapViewState, CompetitorSite, SubstationFeature } from '../types';
 import { getPolygonsForLevel, getPolygonLoadingState } from '../dataLoader/geoPolygons';
 import { LassoSelector } from './LassoSelector';
 import { LassoToggleButton } from './LassoToggleButton';
 import { CompetitorMapLayer } from './CompetitorMapLayer';
 import { MSACompetitorLayer } from './MSACompetitorLayer';
+import { SubstationMapLayer } from './SubstationMapLayer';
+import { CircuitMapLayer } from './CircuitMapLayer';
+import type { CircuitFeature } from './CircuitMapLayer';
 import { ColorScale, getColorMode, isRankBased, RANK_LEGEND_ROWS } from '../utils/colorScale';
 import type { ZoningDistrict, ZoningColorMode } from '../types/zoning';
 
@@ -91,6 +94,13 @@ interface GeoMapViewProps {
   zoningDistricts?: ZoningDistrict[];
   zoningColorMode?: ZoningColorMode;
   onSelectZoningDistrict?: (district: ZoningDistrict) => void;
+  // Circuit polylines + Substation pins (Tract level)
+  circuits?: CircuitFeature[];
+  substations?: SubstationFeature[];
+  nearbySubstationIds?: Set<string>;
+  emphasizedSubstationIds?: Set<string>;
+  highlightedSubstationId?: string | null;
+  onClickSubstation?: (s: SubstationFeature) => void;
 }
 
 /**
@@ -386,6 +396,12 @@ export function GeoMapView({
   zoningDistricts,
   zoningColorMode = 'ev_permitted',
   onSelectZoningDistrict,
+  circuits = [],
+  substations = [],
+  nearbySubstationIds,
+  emphasizedSubstationIds,
+  highlightedSubstationId,
+  onClickSubstation,
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
   lassoEnabledRef.current = lassoEnabled;
@@ -553,6 +569,7 @@ export function GeoMapView({
             data={polygonData}
             style={geoJsonStyle}
             onEachFeature={onEachFeature}
+            renderer={L.canvas({ padding: 0.5 })}
           />
         )}
 
@@ -594,6 +611,22 @@ export function GeoMapView({
         {/* Market Intelligence / Competitor layer - dots at County/Tract only */}
         {geoLevel !== 'MSA' && (
           <CompetitorMapLayer sites={competitorSites} visible={showCompetitorLayer} />
+        )}
+
+        {/* Circuit polylines — distribution-level load availability, rendered beneath substation pins */}
+        {geoLevel === 'Tract' && circuits.length > 0 && (
+          <CircuitMapLayer circuits={circuits} visible={true} />
+        )}
+
+        {/* Substation pins — shown when a tract is selected and nearby substations are available */}
+        {geoLevel === 'Tract' && substations.length > 0 && (
+          <SubstationMapLayer
+            substations={substations}
+            nearbySubstationIds={nearbySubstationIds}
+            emphasizedIds={emphasizedSubstationIds}
+            highlightedId={highlightedSubstationId}
+            onClickSubstation={onClickSubstation}
+          />
         )}
 
         {/* MSA-level competitor markers with company logos */}

@@ -1,4 +1,20 @@
 export type GeoLevel = 'MSA' | 'County' | 'Tract';
+
+export interface SubstationFeature {
+  id: string;
+  name: string;
+  utility: string;
+  lat: number;
+  lng: number;
+  capacityMw: number | null;
+  voltageKv: number | null;
+  /** Distance from tract centroid in metres (only present in nearbySubstations lists) */
+  distM?: number | null;
+  // Voltera override fields (applied client-side, not in source data)
+  hasOverride?: boolean;
+  overrideNotes?: string;
+  overrideLastVerified?: string;
+}
 export type Segment = 'AV' | 'Non-AV';
 
 export interface MapViewState {
@@ -59,6 +75,8 @@ export interface RegionDetails {
   circuitVoltage?: number;
   pvCapacity?: number;
   gridReadinessScore?: number;
+  /** All substations within 10 km of the tract centroid, sorted by distance */
+  nearbySubstations?: SubstationFeature[] | null;
 }
 
 export interface Region {
