@@ -63,7 +63,7 @@ function makeIcon(
   vl: VoltageLevel,
   hasOverride: boolean,
 ): L.DivIcon {
-  const size   = state === 'highlighted' ? 22 : state === 'nearby' ? 16 : 14;
+  const size   = state === 'highlighted' ? 26 : state === 'nearby' ? 22 : 18;
   const cls    = state === 'highlighted' ? 'ss-hl' : state === 'nearby' ? 'ss-near' : '';
 
   // Sub-transmission gets amber stroke to signal "step-down required"
@@ -184,7 +184,7 @@ export function SubstationMapLayer({
       const vl     = voltageLevel(s.voltageKv);
       const color  = capacityColor(s.capacityMw, vl);
       const icon   = makeIcon(color, state, vl, !!s.hasOverride);
-      const size   = state === 'highlighted' ? 22 : state === 'nearby' ? 16 : 14;
+      const size   = state === 'highlighted' ? 26 : state === 'nearby' ? 22 : 18;
 
       // Dim if filter active and this substation is not in the emphasized set
       const isEmphasized = !filterActive || emphasizedIds!.has(s.id);
@@ -192,7 +192,7 @@ export function SubstationMapLayer({
 
       const marker = L.marker([s.lat, s.lng], {
         icon,
-        zIndexOffset: state === 'highlighted' ? 2000 : state === 'nearby' ? 1000 : 0,
+        zIndexOffset: state === 'highlighted' ? 3000 : state === 'nearby' ? 2000 : 1000,
       });
       marker.setOpacity(opacity);
 

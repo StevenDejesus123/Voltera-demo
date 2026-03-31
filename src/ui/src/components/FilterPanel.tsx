@@ -1,6 +1,6 @@
 import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2, MapPin } from 'lucide-react';
 import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails, CompetitorSite } from '../types';
-import { exportToCSV, exportToGeoJSON, exportToKML, exportToShapefile, ExportOptions } from '../utils/exportUtils';
+import { exportToCSV, exportToGeoJSON, exportToKML, exportToShapefile, exportSitePinsToShapefile, ExportOptions } from '../utils/exportUtils';
 import { ensureDetailsLoaded, getRegionDetails, loadTractDetailsForCounty } from '../dataLoader/frontendLoader';
 import { useState } from 'react';
 import * as Slider from '@radix-ui/react-slider';
@@ -93,6 +93,7 @@ export function FilterPanel({
   const [useSmartMerge, setUseSmartMerge] = useState(false);
   const [includeSitePins, setIncludeSitePins] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPins, setIsExportingPins] = useState(false);
 
   const hasCountySelection = multiSelectedCounties.length > 0 || selectedCounty !== null;
   const hasTractSelection = multiSelectedTracts.length > 0 || selectedTract !== null;
@@ -190,6 +191,27 @@ export function FilterPanel({
       alert(`Export failed: ${err.message || err}`);
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  async function handleExportSitePins(): Promise<void> {
+    setIsExportingPins(true);
+    try {
+      // Match KML/GeoJSON scoping: only filter to county bounds at County/Tract level
+      let countyFilter: Region[] | undefined;
+      if (exportLevel === 'County' || exportLevel === 'Tract') {
+        if (multiSelectedCounties.length > 0) {
+          countyFilter = multiSelectedCounties;
+        } else if (selectedCounty) {
+          countyFilter = [selectedCounty];
+        }
+      }
+      await exportSitePinsToShapefile(filteredCompetitorSites, countyFilter);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Site pins export failed: ${message}`);
+    } finally {
+      setIsExportingPins(false);
     }
   }
 
@@ -676,8 +698,8 @@ export function FilterPanel({
           </div>
         )}
 
-        {/* Include Site Pins - for GeoJSON/KML when competitor layer is active */}
-        {(exportFormat === 'GeoJSON' || exportFormat === 'KML') && showCompetitorLayer && filteredCompetitorSites.length > 0 && (
+        {/* Include Site Pins - for CSV/GeoJSON/KML when competitor layer is active */}
+        {exportFormat !== 'Shapefile' && showCompetitorLayer && filteredCompetitorSites.length > 0 && (
           <div className="mb-3 space-y-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -717,6 +739,27 @@ export function FilterPanel({
             </>
           )}
         </button>
+
+        {/* Site Pins as buffered polygons — LandVision-compatible */}
+        {exportFormat === 'Shapefile' && showCompetitorLayer && filteredCompetitorSites.length > 0 && (
+          <button
+            onClick={handleExportSitePins}
+            disabled={isExportingPins}
+            className="w-full mt-2 px-4 py-2 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed text-indigo-600 border border-indigo-300 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm"
+          >
+            {isExportingPins ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating site pins...
+              </>
+            ) : (
+              <>
+                <MapPin className="w-4 h-4" />
+                Export Site Pins Shapefile ({filteredCompetitorSites.length})
+              </>
+            )}
+          </button>
+        )}
 
         <p className="text-xs text-gray-500 mt-3">
           {exportRegions.length} {exportLevel}{exportRegions.length !== 1 ? 's' : ''} will be exported

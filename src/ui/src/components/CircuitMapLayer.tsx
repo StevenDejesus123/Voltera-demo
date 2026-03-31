@@ -13,12 +13,12 @@ export interface CircuitFeature {
   coords: number[][][];   // array of lines, each line is [[lng, lat], ...]
 }
 
-// ── Load availability → color (same thresholds as substation capacity) ─────
+// ── Load availability → color ─────────────────────────────────────────────
 function loadColor(kw: number | null): string {
-  if (kw == null || kw <= 0) return '#ef4444';   // red   — no availability
-  if (kw < 1000)             return '#f97316';   // orange — < 1 MW
-  if (kw < 5000)             return '#eab308';   // yellow — 1–5 MW
-  return '#22c55e';                              // green  — > 5 MW
+  if (kw == null || kw <= 0) return '#ef4444';   // red
+  if (kw < 1000)             return '#f97316';   // orange
+  if (kw < 5000)             return '#eab308';   // yellow
+  return '#22c55e';                              // green
 }
 
 function loadLabel(kw: number | null): string {
@@ -67,6 +67,13 @@ export function CircuitMapLayer({ circuits, visible = true }: CircuitMapLayerPro
   const layersRef = useRef<L.Polyline[]>([]);
 
   useEffect(() => {
+    // Ensure a dedicated pane exists above the choropleth canvas (overlayPane z=400)
+    // but below markerPane (z=600) so substation pins always render and receive clicks on top.
+    if (!map.getPane('circuitPane')) {
+      const pane = map.createPane('circuitPane');
+      pane.style.zIndex = '450';
+    }
+
     // Remove previous layers
     layersRef.current.forEach(l => l.remove());
     layersRef.current = [];
@@ -78,26 +85,29 @@ export function CircuitMapLayer({ circuits, visible = true }: CircuitMapLayerPro
     for (const c of circuits) {
       if (!c.coords || c.coords.length === 0) continue;
 
-      const color  = loadColor(c.loadAvailKw);
-      const weight = 2;
+      const color = loadColor(c.loadAvailKw);
 
       for (const line of c.coords) {
         if (line.length < 2) continue;
 
-        // coords are [lng, lat] — Leaflet wants [lat, lng]
         const latLngs = line.map(([lng, lat]) => [lat, lng] as [number, number]);
 
         const poly = L.polyline(latLngs, {
           color,
-          weight,
-          opacity: 0.75,
+          weight: 2,
+          opacity: 0.7,
           interactive: true,
+          pane: 'circuitPane',
         });
+
+        // Brighten on hover so interaction is clearly intentional
+        poly.on('mouseover', () => poly.setStyle({ weight: 4, opacity: 1.0 }));
+        poly.on('mouseout',  () => poly.setStyle({ weight: 2, opacity: 0.7 }));
 
         poly.bindTooltip(tooltipHtml(c), {
           sticky: true,
           direction: 'top',
-          offset: [0, -4],
+          offset: [0, -6],
         });
 
         poly.addTo(map);

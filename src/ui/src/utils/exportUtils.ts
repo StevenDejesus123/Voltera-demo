@@ -2,7 +2,7 @@ import { Region, GeoLevel, RegionDetails, CompetitorSite } from '../types';
 import { getPolygonsForLevel } from '../dataLoader/geoPolygons';
 import union from '@turf/union';
 import buffer from '@turf/buffer';
-import { featureCollection, polygon, multiPolygon } from '@turf/helpers';
+import { featureCollection, point, polygon, multiPolygon } from '@turf/helpers';
 import type { Feature, Polygon, MultiPolygon, GeoJsonProperties } from 'geojson';
 import { getVisibleFields, FIELD_LABELS, aggregateDetails, getVisibleAnalysis } from './analysisUtils';
 import { ColorScale, getColorMode, isRankBased } from './colorScale';
@@ -73,7 +73,14 @@ function assembleKMLContent(
 
 export function exportToCSV(regions: Region[], options: ExportOptions = {}): void {
   const { analysisData } = options;
+  const sites = resolveSitesForExport(options.sites, options.siteCountyFilter);
+  const hasSites = (sites != null && sites.length > 0);
+
+  const typeHeader = hasSites ? ['Type'] : [];
   const baseHeaders = ['Rank', 'Region ID', 'Region Name', 'Score', 'Customer Count', 'In Geofence', 'Geo Level'];
+  const siteHeaders = hasSites
+    ? ['Company', 'Category', 'Status', 'MSA', 'Address', 'City', 'State', 'Zoning', 'Stalls', 'Segment', 'Opportunity', 'Utility', 'Notes']
+    : [];
 
   // Determine analysis columns based on geo level
   const geoLevel = regions.length > 0 ? regions[0].geoLevel : undefined;
@@ -82,9 +89,12 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
     : [];
   const analysisHeaders = analysisFields.map(f => FIELD_LABELS[f] || f);
 
-  const headers = [...baseHeaders, ...analysisHeaders];
+  const headers = [...typeHeader, ...baseHeaders, ...analysisHeaders, ...siteHeaders];
+  const emptyRegionCols = baseHeaders.length + analysisHeaders.length;
+  const emptySiteCols = siteHeaders.length;
 
   const rows = regions.map(region => {
+    const type = hasSites ? ['region'] : [];
     const base = [
       region.rank,
       region.id,
@@ -98,7 +108,8 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
       const val = analysisData?.get(region.id)?.[field];
       return val ?? '';
     });
-    return [...base, ...analysis];
+    const sitePad = hasSites ? Array(emptySiteCols).fill('') : [];
+    return [...type, ...base, ...analysis, ...sitePad];
   });
 
   // Add summary row for multi-region exports
@@ -107,8 +118,9 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
     const aggregated = aggregateDetails(detailsList);
     const avgScore = regions.reduce((s, r) => s + r.score, 0) / regions.length;
     const totalCustomers = regions.reduce((s, r) => s + r.customerCount, 0);
+    const type = hasSites ? ['SUMMARY'] : [];
     const summaryBase = [
-      'SUMMARY',
+      hasSites ? '' : 'SUMMARY',
       '',
       `"${regions.length} regions aggregated"`,
       avgScore.toFixed(4),
@@ -120,7 +132,33 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
       const val = aggregated[field];
       return val ?? '';
     });
-    rows.push([...summaryBase, ...summaryAnalysis] as any);
+    const sitePad = hasSites ? Array(emptySiteCols).fill('') : [];
+    rows.push([...type, ...summaryBase, ...summaryAnalysis, ...sitePad] as any);
+  }
+
+  // Append site pin rows
+  if (sites) {
+    for (const s of sites) {
+      if (s.lat == null || s.lng == null) continue;
+      const type = ['site_pin'];
+      const regionPad = Array(baseHeaders.length + analysisHeaders.length).fill('');
+      const siteData = [
+        `"${(s.companyName || '').replace(/"/g, '""')}"`,
+        s.category || '',
+        s.status || '',
+        `"${(s.msa || '').replace(/"/g, '""')}"`,
+        `"${(s.address || '').replace(/"/g, '""')}"`,
+        s.city || '',
+        s.state || '',
+        s.zoning || '',
+        s.totalStalls ?? '',
+        s.volteraSegment || '',
+        `"${(s.opportunityName || '').replace(/"/g, '""')}"`,
+        s.utility || '',
+        `"${(s.notes || '').replace(/"/g, '""')}"`,
+      ];
+      rows.push([...type, ...regionPad, ...siteData] as any);
+    }
   }
 
   const csvContent = [
@@ -128,7 +166,7 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
     ...rows.map(row => row.join(','))
   ].join('\n');
 
-  downloadFile(csvContent, 'ranking-export.csv', 'text/csv');
+  downloadFile(csvContent, exportFilename('ranking-export.csv', hasSites), 'text/csv');
 }
 
 export function exportToGeoJSON(
@@ -163,11 +201,20 @@ export function exportToGeoJSON(
     }
   }
 
+  // Build color scale matching the UI map choropleth
+  const colorMode = geoLevel ? getColorMode(geoLevel) : 'quantile';
+  const colorScale = new ColorScale(regions.map(r => r.score), colorMode);
+  const useRank = geoLevel ? isRankBased(geoLevel) : false;
+  const totalRegions = regions.length;
+
   // Individual features with polygon geometry
   const features = regions.map(region => {
     const analysis = geoLevel && analysisData
       ? getVisibleAnalysis(analysisData.get(region.id), geoLevel)
       : null;
+    const color = useRank
+      ? colorScale.getColorByRank(region.rank, totalRegions)
+      : colorScale.getColor(region.score);
     return {
       type: 'Feature' as const,
       geometry: polygonMap.get(region.id) || {
@@ -179,6 +226,7 @@ export function exportToGeoJSON(
         name: region.name,
         rank: region.rank,
         score: region.score,
+        color,
         customerCount: region.customerCount,
         inGeofence: region.inGeofence,
         geoLevel: region.geoLevel,
@@ -310,10 +358,16 @@ export async function exportToShapefile(
   const visibleFields = geoLevel ? getVisibleFields(geoLevel) : [];
 
   const features = regions.map(region => {
-    const geom = polygonMap.get(region.id) ?? {
+    const rawGeom = polygonMap.get(region.id) ?? {
       type: 'Point' as const,
       coordinates: [region.lng, region.lat],
     };
+
+    // Normalize Polygon → MultiPolygon so shp-write processes all
+    // features in one pass (mixing types causes overwrite in the ZIP).
+    const geom = rawGeom.type === 'Polygon'
+      ? { type: 'MultiPolygon' as const, coordinates: [rawGeom.coordinates] }
+      : rawGeom;
 
     const props: Record<string, string | number | null> = {
       REGION_ID: region.id,
@@ -340,17 +394,78 @@ export async function exportToShapefile(
     return { type: 'Feature' as const, geometry: geom, properties: props };
   });
 
+  const shpName = `rankings_${geoLevelStr}`;
   const blob = await shpwrite.zip(
     { type: 'FeatureCollection', features } as any,
     {
-      folder: `rankings_${geoLevelStr}_shapefile`,
-      filename: `rankings_${geoLevelStr}_shapefile`,
       outputType: 'blob',
       compression: 'DEFLATE',
+      types: { polygon: shpName },
     }
   ) as unknown as Blob;
 
   triggerDownload(URL.createObjectURL(blob), `rankings_${geoLevelStr}_shapefile.zip`);
+}
+
+/**
+ * Export site pins as a polygon-buffer shapefile for LandVision.
+ * Each pin becomes a 50 m-radius circle polygon so that LandVision's
+ * polygon-only Shape Loader accepts it.
+ */
+export async function exportSitePinsToShapefile(
+  sites: CompetitorSite[],
+  siteCountyFilter?: Region[],
+): Promise<void> {
+  const resolved = resolveSitesForExport(sites, siteCountyFilter);
+  if (!resolved || resolved.length === 0) {
+    throw new Error('No site pins with valid coordinates in the selected area.');
+  }
+
+  const validSites = resolved.filter(s => s.lat != null && s.lng != null);
+  if (validSites.length === 0) {
+    throw new Error('No site pins with valid coordinates to export.');
+  }
+
+  const features = validSites
+    .map(s => {
+      const pt = point([s.lng!, s.lat!]);
+      const buffered = buffer(pt, 0.05, { units: 'kilometers' });
+      if (!buffered) return null;
+
+      buffered.properties = {
+        COMPANY:  (s.companyName || '').slice(0, 254),
+        CATEGORY: s.category || '',
+        STATUS:   (s.status || '').slice(0, 50),
+        MSA:      (s.msa || '').slice(0, 100),
+        ADDRESS:  (s.address || '').slice(0, 254),
+        CITY:     (s.city || '').slice(0, 100),
+        STATE:    (s.state || '').slice(0, 20),
+        ZONING:   (s.zoning || '').slice(0, 50),
+        STALLS:   s.totalStalls ?? 0,
+        SEGMENT:  (s.volteraSegment || '').slice(0, 50),
+        OPP_NAME: (s.opportunityName || '').slice(0, 254),
+        UTILITY:  (s.utility || '').slice(0, 100),
+        NOTES:    (s.notes || '').slice(0, 254),
+      };
+
+      return buffered;
+    })
+    .filter(Boolean);
+
+  if (features.length === 0) {
+    throw new Error('Buffer generation failed for all site pins.');
+  }
+
+  const blob = await shpwrite.zip(
+    { type: 'FeatureCollection', features } as any,
+    {
+      outputType: 'blob',
+      compression: 'DEFLATE',
+      types: { polygon: 'site_pins' },
+    }
+  ) as unknown as Blob;
+
+  triggerDownload(URL.createObjectURL(blob), 'site_pins_buffered.zip');
 }
 
 // ---------------------------------------------------------------------------
@@ -510,6 +625,8 @@ function buildSiteGeoJSONFeatures(sites: CompetitorSite[] | undefined): any[] {
         totalStalls: s.totalStalls,
         segment: s.volteraSegment,
         opportunityName: s.opportunityName,
+        utility: s.utility,
+        notes: s.notes,
       },
     }));
 }
@@ -552,6 +669,7 @@ function buildSitePinPlacemark(site: CompetitorSite): string {
   if (site.zoning) descParts.push(`<b>Zoning:</b> ${escapeXml(site.zoning)}`);
   if (site.totalStalls != null) descParts.push(`<b>Total Stalls:</b> ${site.totalStalls}`);
   if (site.volteraSegment) descParts.push(`<b>Segment:</b> ${escapeXml(site.volteraSegment)}`);
+  if (site.utility) descParts.push(`<b>Utility:</b> ${escapeXml(site.utility)}`);
   if (site.notes) descParts.push(`<b>Notes:</b> ${escapeXml(site.notes)}`);
 
   return `
