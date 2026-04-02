@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Dispatch, SetStateAction } from 'react';
 import { FilterPanel } from './FilterPanel';
 import { GeoPanel } from './GeoPanel';
-import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds } from './UtilityGridPanel';
+import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds, getCapacityTier, hasAnyFilter } from './UtilityGridPanel';
 import type { SubstationFilters } from './UtilityGridPanel';
 import { loadOverrides, applyOverrides, saveOverride, removeOverride, exportOverridesJson } from '../utils/substationOverrides';
 import type { OverrideMap } from '../utils/substationOverrides';
@@ -79,7 +79,6 @@ export function MapExplorer() {
   const [msaRange, setMsaRange] = useState<[number, number]>([0, 0]);
   const [countyRange, setCountyRange] = useState<[number, number]>([0, 0]);
   const [tractRange, setTractRange] = useState<[number, number]>([0, 0]);
-  const [minGridCapacity, setMinGridCapacity] = useState<number>(0);
   const [selectedMSA, setSelectedMSA] = useState<Region | null>(null);
   const [selectedCounty, setSelectedCounty] = useState<Region | null>(null);
   const [selectedCounties, setSelectedCounties] = useState<Region[]>([]);
@@ -195,6 +194,23 @@ export function MapExplorer() {
 
   // Count of emphasized substations (for the panel header)
   const emphasizedCount = emphasizedSubstationIds.size;
+
+  // Filter circuits by active utility + capacity tier + min threshold (voltage class doesn't apply — circuits are all distribution)
+  const filteredCircuits = useMemo<CircuitFeature[]>(() => {
+    if (!hasAnyFilter(substationFilters)) return allCircuits;
+    return allCircuits.filter(c => {
+      if (substationFilters.utilities.size > 0 && !substationFilters.utilities.has(c.utility)) return false;
+      if (substationFilters.capacityTiers.size > 0) {
+        const mw = c.loadAvailKw != null ? c.loadAvailKw / 1000 : null;
+        if (!substationFilters.capacityTiers.has(getCapacityTier(mw))) return false;
+      }
+      if (substationFilters.minCapacityMw > 0) {
+        const minKw = substationFilters.minCapacityMw * 1000;
+        if (c.loadAvailKw == null || c.loadAvailKw < minKw) return false;
+      }
+      return true;
+    });
+  }, [allCircuits, substationFilters]);
 
 
   // Load competitor + Salesforce data on mount and listen for load events
@@ -535,9 +551,9 @@ export function MapExplorer() {
   const tracts = tractsRaw.filter((r) => {
     const rank = typeof r.rank === 'number' ? r.rank : 0;
     if (!isInRange(rank, tractRange) || !matchesIdFilter(r.id, selectedTractIds)) return false;
-    if (minGridCapacity > 0) {
-      const cap = r.gridLoadCapacity;
-      if (cap == null || cap < minGridCapacity) return false;
+    if (substationFilters.minCapacityMw > 0) {
+      const cap = r.gridLoadCapacity; // kW
+      if (cap == null || cap < substationFilters.minCapacityMw * 1000) return false;
     }
     return true;
   });
@@ -696,6 +712,7 @@ export function MapExplorer() {
                 <UtilityGridPanel
                   onClose={() => setShowUtilityPanel(false)}
                   allSubstations={allSubstations}
+                  circuits={allCircuits}
                   filteredCount={emphasizedCount}
                   filters={substationFilters}
                   onFiltersChange={setSubstationFilters}
@@ -995,8 +1012,6 @@ export function MapExplorer() {
           setCountyRange={setCountyRange}
           tractRange={tractRange}
           setTractRange={setTractRange}
-          minGridCapacity={minGridCapacity}
-          setMinGridCapacity={setMinGridCapacity}
           selectedCounty={selectedCounty}
           selectedTract={selectedTract}
           multiSelectedCounties={selectedCounties}
@@ -1068,7 +1083,7 @@ export function MapExplorer() {
             onMapViewChange={setTractMapView}
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
-            circuits={showSubstationLayer ? allCircuits : []}
+            circuits={showSubstationLayer ? filteredCircuits : []}
             substations={visibleSubstations}
             nearbySubstationIds={nearbySubstationIds}
             emphasizedSubstationIds={emphasizedSubstationIds}

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Eye, EyeOff, X, Zap } from 'lucide-react';
 import type { SubstationFeature } from '../types';
+import type { CircuitFeature } from './CircuitMapLayer';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type CapacityTier = 'green' | 'yellow' | 'orange' | 'red';
@@ -10,10 +11,11 @@ export interface SubstationFilters {
   utilities:      Set<string>;
   capacityTiers:  Set<CapacityTier>;
   voltageClasses: Set<VoltageClass>;
+  minCapacityMw:  number;
 }
 
 export function defaultSubstationFilters(): SubstationFilters {
-  return { utilities: new Set(), capacityTiers: new Set(), voltageClasses: new Set<VoltageClass>(['distribution']) };
+  return { utilities: new Set(), capacityTiers: new Set(), voltageClasses: new Set<VoltageClass>(['distribution']), minCapacityMw: 0 };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -38,6 +40,7 @@ export function filterSubstations(
     if (filters.utilities.size > 0 && !filters.utilities.has(s.utility)) return false;
     if (filters.capacityTiers.size > 0 && !filters.capacityTiers.has(getCapacityTier(s.capacityMw))) return false;
     if (filters.voltageClasses.size > 0 && !filters.voltageClasses.has(getVoltageClass(s.voltageKv))) return false;
+    if (filters.minCapacityMw > 0 && (s.capacityMw == null || s.capacityMw < filters.minCapacityMw)) return false;
     return true;
   });
 }
@@ -58,6 +61,7 @@ export function getEmphasisIds(
         if (filters.utilities.size > 0 && !filters.utilities.has(s.utility)) return false;
         if (filters.capacityTiers.size > 0 && !filters.capacityTiers.has(getCapacityTier(s.capacityMw))) return false;
         if (filters.voltageClasses.size > 0 && !filters.voltageClasses.has(getVoltageClass(s.voltageKv))) return false;
+        if (filters.minCapacityMw > 0 && (s.capacityMw == null || s.capacityMw < filters.minCapacityMw)) return false;
         return true;
       })
       .map(s => s.id),
@@ -65,7 +69,7 @@ export function getEmphasisIds(
 }
 
 export function hasAnyFilter(f: SubstationFilters): boolean {
-  return f.utilities.size > 0 || f.capacityTiers.size > 0 || f.voltageClasses.size > 0;
+  return f.utilities.size > 0 || f.capacityTiers.size > 0 || f.voltageClasses.size > 0 || f.minCapacityMw > 0;
 }
 
 // Toggle helpers — empty set = "show all"; toggling off the last item resets to empty
@@ -91,8 +95,9 @@ function toggleSet<T>(set: Set<T>, value: T, all: T[]): Set<T> {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const UTILITIES: { id: string; label: string; color: string }[] = [
-  { id: 'sce', label: 'SCE',  color: '#f59e0b' },
-  { id: 'pge', label: 'PG&E', color: '#3b82f6' },
+  { id: 'sce',   label: 'SCE',   color: '#f59e0b' },
+  { id: 'pge',   label: 'PG&E',  color: '#3b82f6' },
+  { id: 'ladwp', label: 'LADWP', color: '#10b981' },
 ];
 
 const CAPACITY_TIERS: { id: CapacityTier; label: string; range: string; color: string }[] = [
@@ -112,6 +117,7 @@ const VOLTAGE_CLASSES: { id: VoltageClass; label: string; range: string }[] = [
 interface UtilityGridPanelProps {
   onClose:           () => void;
   allSubstations:    SubstationFeature[];
+  circuits?:         CircuitFeature[];
   filteredCount:     number;
   filters:           SubstationFilters;
   onFiltersChange:   (f: SubstationFilters) => void;
@@ -125,6 +131,7 @@ interface UtilityGridPanelProps {
 export function UtilityGridPanel({
   onClose,
   allSubstations,
+  circuits = [],
   filteredCount,
   filters,
   onFiltersChange,
@@ -150,6 +157,10 @@ export function UtilityGridPanel({
   const utilityCounts = Object.fromEntries(
     UTILITIES.map(u => [u.id, allSubstations.filter(s => s.utility === u.id).length])
   );
+  const circuitCounts = Object.fromEntries(
+    UTILITIES.map(u => [u.id, circuits.filter(c => c.utility === u.id).length])
+  );
+  const circuitsLoaded = circuits.length > 0;
   const tierCounts = Object.fromEntries(
     CAPACITY_TIERS.map(t => [t.id, allSubstations.filter(s => getCapacityTier(s.capacityMw) === t.id).length])
   );
@@ -171,7 +182,7 @@ export function UtilityGridPanel({
   }
 
   const activeCount = [filters.utilities.size, filters.capacityTiers.size, filters.voltageClasses.size]
-    .filter(n => n > 0).length;
+    .filter(n => n > 0).length + (filters.minCapacityMw > 0 ? 1 : 0);
 
   return (
     <div
@@ -249,7 +260,11 @@ export function UtilityGridPanel({
                 >
                   <span className="font-bold">{u.label}</span>
                   <span className={`text-[10px] mt-0.5 ${selected ? 'text-white/80' : 'text-gray-400'}`}>
-                    {utilityCounts[u.id]} subs
+                    {utilityCounts[u.id] > 0 ? `${utilityCounts[u.id]} subs` : null}
+                    {utilityCounts[u.id] > 0 && circuitsLoaded && circuitCounts[u.id] > 0 ? ' · ' : null}
+                    {circuitsLoaded && circuitCounts[u.id] > 0 ? `${circuitCounts[u.id]} circ` : null}
+                    {utilityCounts[u.id] === 0 && !circuitsLoaded ? 'ICA data' : null}
+                    {utilityCounts[u.id] === 0 && circuitsLoaded && circuitCounts[u.id] === 0 ? 'not in area' : null}
                   </span>
                 </button>
               );
@@ -257,9 +272,38 @@ export function UtilityGridPanel({
           </div>
         </section>
 
-        {/* Capacity Tier */}
+        {/* Capacity Threshold Slider */}
         <section>
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Load Availability (MW)</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Min. Load Availability</p>
+            <span className={`text-xs font-semibold ${filters.minCapacityMw > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
+              {filters.minCapacityMw === 0 ? 'Any' : `≥ ${filters.minCapacityMw} MW`}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={50}
+            step={1}
+            value={filters.minCapacityMw}
+            onChange={e => onFiltersChange({ ...filters, minCapacityMw: Number(e.target.value) })}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-yellow-500"
+            style={{ background: filters.minCapacityMw === 0
+              ? '#e5e7eb'
+              : `linear-gradient(to right, #f59e0b 0%, #f59e0b ${filters.minCapacityMw * 2}%, #e5e7eb ${filters.minCapacityMw * 2}%, #e5e7eb 100%)`
+            }}
+          />
+          <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-0.5">
+            <span>0</span>
+            <span>10</span>
+            <span>25</span>
+            <span>50 MW</span>
+          </div>
+        </section>
+
+        {/* Capacity Tier Quick-select */}
+        <section>
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Tier Quick-select</p>
           <div className="grid grid-cols-2 gap-1.5">
             {CAPACITY_TIERS.map(t => {
               const selected = filters.capacityTiers.has(t.id);
