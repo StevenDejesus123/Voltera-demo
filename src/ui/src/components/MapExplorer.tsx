@@ -204,9 +204,8 @@ export function MapExplorer() {
         const mw = c.loadAvailKw != null ? c.loadAvailKw / 1000 : null;
         if (!substationFilters.capacityTiers.has(getCapacityTier(mw))) return false;
       }
-      if (substationFilters.minCapacityMw > 0) {
-        const minKw = substationFilters.minCapacityMw * 1000;
-        if (c.loadAvailKw == null || c.loadAvailKw < minKw) return false;
+      if (substationFilters.minCircuitCapacityKw > 0) {
+        if (c.loadAvailKw == null || c.loadAvailKw < substationFilters.minCircuitCapacityKw) return false;
       }
       return true;
     });
@@ -551,10 +550,6 @@ export function MapExplorer() {
   const tracts = tractsRaw.filter((r) => {
     const rank = typeof r.rank === 'number' ? r.rank : 0;
     if (!isInRange(rank, tractRange) || !matchesIdFilter(r.id, selectedTractIds)) return false;
-    if (substationFilters.minCapacityMw > 0) {
-      const cap = r.gridLoadCapacity; // kW
-      if (cap == null || cap < substationFilters.minCapacityMw * 1000) return false;
-    }
     return true;
   });
 

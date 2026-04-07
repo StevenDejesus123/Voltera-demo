@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, X, Zap } from 'lucide-react';
 import type { SubstationFeature } from '../types';
 import type { CircuitFeature } from './CircuitMapLayer';
@@ -8,14 +8,21 @@ export type CapacityTier = 'green' | 'yellow' | 'orange' | 'red';
 export type VoltageClass  = 'distribution' | 'subtransmission' | 'transmission';
 
 export interface SubstationFilters {
-  utilities:      Set<string>;
-  capacityTiers:  Set<CapacityTier>;
-  voltageClasses: Set<VoltageClass>;
-  minCapacityMw:  number;
+  utilities:           Set<string>;
+  capacityTiers:       Set<CapacityTier>;
+  voltageClasses:      Set<VoltageClass>;
+  minCapacityMw:       number;   // substation min load availability
+  minCircuitCapacityKw: number;  // circuit min load availability
 }
 
 export function defaultSubstationFilters(): SubstationFilters {
-  return { utilities: new Set(), capacityTiers: new Set(), voltageClasses: new Set<VoltageClass>(['distribution']), minCapacityMw: 0 };
+  return {
+    utilities: new Set(),
+    capacityTiers: new Set(),
+    voltageClasses: new Set<VoltageClass>(['distribution']),
+    minCapacityMw: 0,
+    minCircuitCapacityKw: 0,
+  };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -69,7 +76,7 @@ export function getEmphasisIds(
 }
 
 export function hasAnyFilter(f: SubstationFilters): boolean {
-  return f.utilities.size > 0 || f.capacityTiers.size > 0 || f.voltageClasses.size > 0 || f.minCapacityMw > 0;
+  return f.utilities.size > 0 || f.capacityTiers.size > 0 || f.voltageClasses.size > 0 || f.minCapacityMw > 0 || f.minCircuitCapacityKw > 0;
 }
 
 // Toggle helpers — empty set = "show all"; toggling off the last item resets to empty
@@ -141,6 +148,8 @@ export function UtilityGridPanel({
   onToggleShowAll,
 }: UtilityGridPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [subDraft,  setSubDraft]  = useState('');
+  const [circDraft, setCircDraft] = useState('');
 
   // Click-outside to close
   useEffect(() => {
@@ -182,7 +191,7 @@ export function UtilityGridPanel({
   }
 
   const activeCount = [filters.utilities.size, filters.capacityTiers.size, filters.voltageClasses.size]
-    .filter(n => n > 0).length + (filters.minCapacityMw > 0 ? 1 : 0);
+    .filter(n => n > 0).length + (filters.minCapacityMw > 0 ? 1 : 0) + (filters.minCircuitCapacityKw > 0 ? 1 : 0);
 
   return (
     <div
@@ -276,9 +285,27 @@ export function UtilityGridPanel({
         <section>
           <div className="flex items-center justify-between mb-2">
             <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Min. Load Availability</p>
-            <span className={`text-xs font-semibold ${filters.minCapacityMw > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
-              {filters.minCapacityMw === 0 ? 'Any' : `≥ ${filters.minCapacityMw} MW`}
-            </span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-400">≥</span>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                step={1}
+                placeholder="Any"
+                className={`w-14 text-xs text-center border rounded px-1 py-0.5 focus:outline-none focus:border-yellow-400 font-semibold ${filters.minCapacityMw > 0 ? 'border-yellow-300 text-yellow-600' : 'border-gray-200 text-gray-400'}`}
+                value={subDraft !== '' ? subDraft : filters.minCapacityMw === 0 ? '' : filters.minCapacityMw}
+                onChange={e => setSubDraft(e.target.value)}
+                onFocus={e => { setSubDraft(String(filters.minCapacityMw || '')); e.currentTarget.select(); }}
+                onBlur={() => {
+                  const v = Math.max(0, Math.min(50, parseFloat(subDraft) || 0));
+                  onFiltersChange({ ...filters, minCapacityMw: v });
+                  setSubDraft('');
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+              />
+              <span className="text-[10px] text-gray-400">MW</span>
+            </div>
           </div>
           <input
             type="range"
@@ -298,6 +325,53 @@ export function UtilityGridPanel({
             <span>10</span>
             <span>25</span>
             <span>50 MW</span>
+          </div>
+        </section>
+
+        {/* Circuit Min Capacity Slider */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Min. Circuit Capacity</p>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-400">≥</span>
+              <input
+                type="number"
+                min={0}
+                max={20}
+                step={0.5}
+                placeholder="Any"
+                className={`w-14 text-xs text-center border rounded px-1 py-0.5 focus:outline-none focus:border-blue-400 font-semibold ${filters.minCircuitCapacityKw > 0 ? 'border-blue-300 text-blue-600' : 'border-gray-200 text-gray-400'}`}
+                value={circDraft !== '' ? circDraft : filters.minCircuitCapacityKw === 0 ? '' : filters.minCircuitCapacityKw / 1000}
+                onChange={e => setCircDraft(e.target.value)}
+                onFocus={e => { setCircDraft(String(filters.minCircuitCapacityKw ? filters.minCircuitCapacityKw / 1000 : '')); e.currentTarget.select(); }}
+                onBlur={() => {
+                  const v = Math.max(0, Math.min(20, parseFloat(circDraft) || 0));
+                  onFiltersChange({ ...filters, minCircuitCapacityKw: Math.round(v * 1000) });
+                  setCircDraft('');
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+              />
+              <span className="text-[10px] text-gray-400">MW</span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={20000}
+            step={500}
+            value={filters.minCircuitCapacityKw}
+            onChange={e => onFiltersChange({ ...filters, minCircuitCapacityKw: Number(e.target.value) })}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-blue-500"
+            style={{ background: filters.minCircuitCapacityKw === 0
+              ? '#e5e7eb'
+              : `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${filters.minCircuitCapacityKw / 200}%, #e5e7eb ${filters.minCircuitCapacityKw / 200}%, #e5e7eb 100%)`
+            }}
+          />
+          <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-0.5">
+            <span>0</span>
+            <span>5 MW</span>
+            <span>10 MW</span>
+            <span>20 MW</span>
           </div>
         </section>
 
