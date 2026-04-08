@@ -13,7 +13,7 @@ import {
   loadZoningData, loadTractZoning, getZoningDistrictsForTract,
   isTractZoningLoaded, getZoningTractSummary, isZoningLoaded, getZoneCategoryOptions,
 } from '../dataLoader/zoningLoader';
-import type { CircuitFeature } from './CircuitMapLayer';
+import type { CircuitFeature, SelectedFeeder } from './CircuitMapLayer';
 
 interface GeoPanelProps {
   title: string;
@@ -37,6 +37,8 @@ interface GeoPanelProps {
   showCompetitorLayer?: boolean;
   // Circuit polylines + Substation pins (Tract level)
   circuits?: CircuitFeature[];
+  selectedFeeder?: SelectedFeeder | null;
+  onFeederClick?: (feeder: SelectedFeeder) => void;
   substations?: SubstationFeature[];
   nearbySubstationIds?: Set<string>;
   emphasizedSubstationIds?: Set<string>;
@@ -69,6 +71,8 @@ export function GeoPanel({
   competitorSites = [],
   showCompetitorLayer = false,
   circuits = [],
+  selectedFeeder = null,
+  onFeederClick,
   substations = [],
   nearbySubstationIds,
   emphasizedSubstationIds,
@@ -537,6 +541,8 @@ export function GeoPanel({
                     zoningColorMode={zoningColorMode}
                     onSelectZoningDistrict={setSelectedZoningDistrict}
                     circuits={circuits}
+                    selectedFeeder={selectedFeeder}
+                    onFeederClick={onFeederClick}
                     substations={substations}
                     nearbySubstationIds={nearbySubstationIds}
                     emphasizedSubstationIds={emphasizedSubstationIds}

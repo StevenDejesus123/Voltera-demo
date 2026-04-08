@@ -11,7 +11,7 @@ import { CompetitorMapLayer } from './CompetitorMapLayer';
 import { MSACompetitorLayer } from './MSACompetitorLayer';
 import { SubstationMapLayer } from './SubstationMapLayer';
 import { CircuitMapLayer } from './CircuitMapLayer';
-import type { CircuitFeature } from './CircuitMapLayer';
+import type { CircuitFeature, SelectedFeeder } from './CircuitMapLayer';
 import { ColorScale, getColorMode, isRankBased, RANK_LEGEND_ROWS } from '../utils/colorScale';
 import type { ZoningDistrict, ZoningColorMode } from '../types/zoning';
 
@@ -96,6 +96,8 @@ interface GeoMapViewProps {
   onSelectZoningDistrict?: (district: ZoningDistrict) => void;
   // Circuit polylines + Substation pins (Tract level)
   circuits?: CircuitFeature[];
+  selectedFeeder?: SelectedFeeder | null;
+  onFeederClick?: (feeder: SelectedFeeder) => void;
   substations?: SubstationFeature[];
   nearbySubstationIds?: Set<string>;
   emphasizedSubstationIds?: Set<string>;
@@ -397,6 +399,8 @@ export function GeoMapView({
   zoningColorMode = 'ev_permitted',
   onSelectZoningDistrict,
   circuits = [],
+  selectedFeeder = null,
+  onFeederClick,
   substations = [],
   nearbySubstationIds,
   emphasizedSubstationIds,
@@ -615,7 +619,7 @@ export function GeoMapView({
 
         {/* Circuit polylines — distribution-level load availability, rendered beneath substation pins */}
         {geoLevel === 'Tract' && circuits.length > 0 && (
-          <CircuitMapLayer circuits={circuits} visible={true} />
+          <CircuitMapLayer circuits={circuits} visible={true} selectedFeeder={selectedFeeder} onFeederClick={onFeederClick} />
         )}
 
         {/* Substation pins — shown when a tract is selected and nearby substations are available */}

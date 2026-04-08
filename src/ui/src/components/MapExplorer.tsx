@@ -5,7 +5,7 @@ import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds, getCapacity
 import type { SubstationFilters } from './UtilityGridPanel';
 import { loadOverrides, applyOverrides, saveOverride, removeOverride, exportOverridesJson } from '../utils/substationOverrides';
 import type { OverrideMap } from '../utils/substationOverrides';
-import type { CircuitFeature } from './CircuitMapLayer';
+import type { CircuitFeature, SelectedFeeder } from './CircuitMapLayer';
 import { ExplainabilityPanel } from './ExplainabilityPanel';
 import { ComparePanel } from './ComparePanel';
 import { WhatIfPanel } from './WhatIfPanel';
@@ -122,6 +122,7 @@ export function MapExplorer() {
   // Circuit polyline data — loaded on-demand per county (same pattern as tract_polygons/)
   const [circuitsByCounty, setCircuitsByCounty] = useState<Record<string, CircuitFeature[]>>({});
   const circuitCountyFetchedRef = useRef<Set<string>>(new Set());
+  const [selectedFeeder, setSelectedFeeder] = useState<SelectedFeeder | null>(null);
 
   // Utility Grid panel + filter state
   const [showUtilityPanel, setShowUtilityPanel] = useState(false);
@@ -712,7 +713,7 @@ export function MapExplorer() {
                   filters={substationFilters}
                   onFiltersChange={setSubstationFilters}
                   showLayer={showSubstationLayer}
-                  onToggleLayer={setShowSubstationLayer}
+                  onToggleLayer={v => { setShowSubstationLayer(v); if (!v) setSelectedFeeder(null); }}
                   showAll={showAllSubstations}
                   onToggleShowAll={setShowAllSubstations}
                 />
@@ -1079,6 +1080,10 @@ export function MapExplorer() {
             competitorSites={msaCompetitorSites}
             showCompetitorLayer={showCompetitorLayer}
             circuits={showSubstationLayer ? filteredCircuits : []}
+            selectedFeeder={selectedFeeder}
+            onFeederClick={f => setSelectedFeeder(prev =>
+              prev?.utility === f.utility && prev?.circuitName === f.circuitName ? null : f
+            )}
             substations={visibleSubstations}
             nearbySubstationIds={nearbySubstationIds}
             emphasizedSubstationIds={emphasizedSubstationIds}
@@ -1088,6 +1093,39 @@ export function MapExplorer() {
               setEditingSubstationId(prev => prev === s.id ? null : s.id);
             }}
           />
+
+          {/* Selected feeder banner — appears when a circuit/feeder is clicked */}
+          {selectedFeeder && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-3
+                            bg-gray-900/95 text-white text-xs px-4 py-2.5 rounded-full shadow-xl
+                            border border-white/10 backdrop-blur-sm pointer-events-auto">
+              <span className="font-semibold">
+                {selectedFeeder.circuitName || 'Unnamed Circuit'}
+              </span>
+              <span className="text-gray-400">
+                {selectedFeeder.utility.toUpperCase()}
+                {selectedFeeder.substationName ? ` · ${selectedFeeder.substationName}` : ''}
+              </span>
+              {selectedFeeder.loadAvailKw != null && (
+                <span
+                  className="font-semibold"
+                  style={{ color: selectedFeeder.loadAvailKw <= 0 ? '#ef4444'
+                    : selectedFeeder.loadAvailKw < 1000 ? '#f97316'
+                    : selectedFeeder.loadAvailKw < 5000 ? '#eab308'
+                    : '#22c55e' }}
+                >
+                  {selectedFeeder.loadAvailKw >= 1000
+                    ? `${(selectedFeeder.loadAvailKw / 1000).toFixed(1)} MW`
+                    : `${Math.round(selectedFeeder.loadAvailKw)} kW`}
+                </span>
+              )}
+              <button
+                onClick={() => setSelectedFeeder(null)}
+                className="ml-1 text-gray-400 hover:text-white leading-none"
+                title="Deselect feeder"
+              >✕</button>
+            </div>
+          )}
         </div>
 
         {/* Right Panels */}

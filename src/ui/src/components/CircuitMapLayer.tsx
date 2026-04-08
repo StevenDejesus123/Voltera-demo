@@ -2,6 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 
+export interface SelectedFeeder {
+  utility: string;
+  circuitName: string;
+  substationName: string;
+  loadAvailKw: number | null;
+}
+
 export interface CircuitFeature {
   id: string;
   utility: string;
@@ -53,6 +60,7 @@ function tooltipHtml(c: CircuitFeature): string {
         <span style="color:#f97316">━</span> &lt;1 MW &nbsp;
         <span style="color:#ef4444">━</span> None
       </div>
+      <p style="margin:4px 0 0;font-size:10px;color:#9ca3af;font-style:italic">Click to highlight full feeder</p>
     </div>`;
 }
 
@@ -60,32 +68,52 @@ function tooltipHtml(c: CircuitFeature): string {
 interface CircuitMapLayerProps {
   circuits: CircuitFeature[];
   visible?: boolean;
+  selectedFeeder?: SelectedFeeder | null;
+  onFeederClick?: (feeder: SelectedFeeder) => void;
 }
 
-export function CircuitMapLayer({ circuits, visible = true }: CircuitMapLayerProps) {
-  const map = useMap();
-  const layersRef = useRef<L.Polyline[]>([]);
+interface PolylineEntry {
+  poly: L.Polyline;
+  circuit: CircuitFeature;
+}
 
+function baseStyle(c: CircuitFeature, sf: SelectedFeeder | null): L.PathOptions {
+  if (!sf) return { weight: 2, opacity: 0.7, color: loadColor(c.loadAvailKw) };
+  const isThis = sf.utility === c.utility && sf.circuitName === c.circuitName;
+  return isThis
+    ? { weight: 5, opacity: 1.0, color: loadColor(c.loadAvailKw) }
+    : { weight: 1, opacity: 0.18, color: loadColor(c.loadAvailKw) };
+}
+
+export function CircuitMapLayer({
+  circuits,
+  visible = true,
+  selectedFeeder = null,
+  onFeederClick,
+}: CircuitMapLayerProps) {
+  const map = useMap();
+  const entriesRef = useRef<PolylineEntry[]>([]);
+  // Use a ref so event handler closures always read the latest value
+  const selectedFeederRef = useRef<SelectedFeeder | null>(selectedFeeder);
+  selectedFeederRef.current = selectedFeeder;
+
+  // ── Build/rebuild polylines when circuits or visibility change ────────────
   useEffect(() => {
-    // Ensure a dedicated pane exists above the choropleth canvas (overlayPane z=400)
-    // but below markerPane (z=600) so substation pins always render and receive clicks on top.
     if (!map.getPane('circuitPane')) {
       const pane = map.createPane('circuitPane');
       pane.style.zIndex = '450';
     }
 
-    // Remove previous layers
-    layersRef.current.forEach(l => l.remove());
-    layersRef.current = [];
+    entriesRef.current.forEach(e => e.poly.remove());
+    entriesRef.current = [];
 
     if (!visible || !circuits || circuits.length === 0) return;
 
-    const newLayers: L.Polyline[] = [];
+    const newEntries: PolylineEntry[] = [];
+    const sf = selectedFeederRef.current;
 
     for (const c of circuits) {
       if (!c.coords || c.coords.length === 0) continue;
-
-      const color = loadColor(c.loadAvailKw);
 
       for (const line of c.coords) {
         if (line.length < 2) continue;
@@ -93,16 +121,33 @@ export function CircuitMapLayer({ circuits, visible = true }: CircuitMapLayerPro
         const latLngs = line.map(([lng, lat]) => [lat, lng] as [number, number]);
 
         const poly = L.polyline(latLngs, {
-          color,
-          weight: 2,
-          opacity: 0.7,
+          ...baseStyle(c, sf),
           interactive: true,
           pane: 'circuitPane',
         });
 
-        // Brighten on hover so interaction is clearly intentional
-        poly.on('mouseover', () => poly.setStyle({ weight: 4, opacity: 1.0 }));
-        poly.on('mouseout',  () => poly.setStyle({ weight: 2, opacity: 0.7 }));
+        poly.on('mouseover', () => {
+          const cur = selectedFeederRef.current;
+          const isThis = !cur || (cur.utility === c.utility && cur.circuitName === c.circuitName);
+          if (isThis) {
+            poly.setStyle({ weight: cur ? 7 : 4, opacity: 1.0 });
+          }
+          // Don't brighten dimmed segments that belong to a different feeder
+        });
+
+        poly.on('mouseout', () => {
+          poly.setStyle(baseStyle(c, selectedFeederRef.current));
+        });
+
+        poly.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          onFeederClick?.({
+            utility: c.utility,
+            circuitName: c.circuitName,
+            substationName: c.substationName,
+            loadAvailKw: c.loadAvailKw,
+          });
+        });
 
         poly.bindTooltip(tooltipHtml(c), {
           sticky: true,
@@ -111,17 +156,25 @@ export function CircuitMapLayer({ circuits, visible = true }: CircuitMapLayerPro
         });
 
         poly.addTo(map);
-        newLayers.push(poly);
+        newEntries.push({ poly, circuit: c });
       }
     }
 
-    layersRef.current = newLayers;
+    entriesRef.current = newEntries;
 
     return () => {
-      newLayers.forEach(l => l.remove());
-      layersRef.current = [];
+      newEntries.forEach(e => e.poly.remove());
+      entriesRef.current = [];
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, circuits, visible]);
+
+  // ── Re-style all existing polylines when selection changes ────────────────
+  useEffect(() => {
+    for (const { poly, circuit } of entriesRef.current) {
+      poly.setStyle(baseStyle(circuit, selectedFeeder));
+    }
+  }, [selectedFeeder]);
 
   return null;
 }

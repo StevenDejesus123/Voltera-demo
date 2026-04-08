@@ -105,6 +105,7 @@ const UTILITIES: { id: string; label: string; color: string }[] = [
   { id: 'sce',   label: 'SCE',   color: '#f59e0b' },
   { id: 'pge',   label: 'PG&E',  color: '#3b82f6' },
   { id: 'ladwp', label: 'LADWP', color: '#10b981' },
+  { id: 'sdge',  label: 'SDG&E', color: '#8b5cf6' },
 ];
 
 const CAPACITY_TIERS: { id: CapacityTier; label: string; range: string; color: string }[] = [
@@ -252,7 +253,6 @@ export function UtilityGridPanel({
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Utility</p>
           <div className="flex gap-2">
             {UTILITIES.map(u => {
-              const active = filters.utilities.size === 0 || filters.utilities.has(u.id);
               const selected = filters.utilities.has(u.id);
               return (
                 <button
