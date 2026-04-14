@@ -1,1 +1,1 @@
-[{"id":"20187964100","name":"Census Tract 9641","geoLevel":"TRACT","rank":53822,"score":0.005130337182376441,"customerCount":0,"inGeofence":false,"lat":37.563068,"lng":-101.784175,"countyID":"20187","msaID":null,"msaName":null,"gridLoadCapacity":1.0,"gridReadinessScore":67.2}]
+[{"id":"20187964100","name":"Census Tract 9641","geoLevel":"TRACT","rank":53822,"score":0.005130337182376441,"customerCount":0,"inGeofence":false,"lat":37.563068,"lng":-101.784175,"countyID":"20187","msaID":null,"msaName":null,"gridLoadCapacity":1000.0,"gridReadinessScore":70.9}]

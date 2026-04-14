@@ -1,1 +1,1 @@
-[{"id":"06091010000","name":"Census Tract 100","geoLevel":"TRACT","rank":67212,"score":0.002751480116591893,"customerCount":0,"inGeofence":false,"lat":39.580402,"lng":-120.516008,"countyID":"06091","msaID":null,"msaName":null,"gridLoadCapacity":100.5,"gridReadinessScore":74.8}]
+[{"id":"06091010000","name":"Census Tract 100","geoLevel":"TRACT","rank":67212,"score":0.002751480116591893,"customerCount":0,"inGeofence":false,"lat":39.580402,"lng":-120.516008,"countyID":"06091","msaID":null,"msaName":null,"gridLoadCapacity":100.5,"gridReadinessScore":51.0}]

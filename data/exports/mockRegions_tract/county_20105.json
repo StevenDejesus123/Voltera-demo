@@ -1,1 +1,1 @@
-[{"id":"20105086100","name":"Census Tract 861","geoLevel":"TRACT","rank":54729,"score":0.004822400937640334,"customerCount":0,"inGeofence":false,"lat":39.045334,"lng":-98.207714,"countyID":"20105","msaID":null,"msaName":null,"gridLoadCapacity":1.0,"gridReadinessScore":66.8}]
+[{"id":"20105086100","name":"Census Tract 861","geoLevel":"TRACT","rank":54729,"score":0.004822400937640334,"customerCount":0,"inGeofence":false,"lat":39.045334,"lng":-98.207714,"countyID":"20105","msaID":null,"msaName":null,"gridLoadCapacity":1000.0,"gridReadinessScore":70.5}]

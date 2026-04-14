@@ -1,1 +1,1 @@
-[{"id":"48345950100","name":"Census Tract 9501","geoLevel":"TRACT","rank":68561,"score":0.002420878907051812,"customerCount":0,"inGeofence":false,"lat":34.07409,"lng":-100.779834,"countyID":"48345","msaID":null,"msaName":null,"gridLoadCapacity":2.53,"gridReadinessScore":78.8}]
+[{"id":"48345950100","name":"Census Tract 9501","geoLevel":"TRACT","rank":68561,"score":0.002420878907051812,"customerCount":0,"inGeofence":false,"lat":34.07409,"lng":-100.779834,"countyID":"48345","msaID":null,"msaName":null,"gridLoadCapacity":2530.0,"gridReadinessScore":83.2}]

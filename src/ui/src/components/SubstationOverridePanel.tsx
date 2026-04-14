@@ -11,6 +11,7 @@ interface SubstationOverridePanelProps {
   overrides: OverrideMap;
   onOverridesChange: (next: OverrideMap) => void;
   onClose: () => void;
+  onViewAll?: () => void;
 }
 
 function voltageLabel(kv: number | null): string {
@@ -25,6 +26,7 @@ export function SubstationOverridePanel({
   overrides,
   onOverridesChange,
   onClose,
+  onViewAll,
 }: SubstationOverridePanelProps) {
   const existing = overrides[substation.id];
 
@@ -202,13 +204,23 @@ export function SubstationOverridePanel({
           )}
         </div>
 
-        <button
-          onClick={handleExport}
-          className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-1.5 hover:bg-gray-50 rounded-lg transition-colors"
-        >
-          <Download className="w-3.5 h-3.5" />
-          Export all overrides ({overrideCount})
-        </button>
+        <div className="flex gap-2">
+          {onViewAll && (
+            <button
+              onClick={onViewAll}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 py-1.5 hover:bg-indigo-50 rounded-lg transition-colors font-medium"
+            >
+              View all ({overrideCount})
+            </button>
+          )}
+          <button
+            onClick={handleExport}
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-1.5 hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export
+          </button>
+        </div>
       </div>
     </div>
   );

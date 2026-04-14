@@ -1,24 +1,37 @@
 import { useState, useEffect, useMemo, useRef, Dispatch, SetStateAction } from 'react';
 import { FilterPanel } from './FilterPanel';
 import { GeoPanel } from './GeoPanel';
-import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds, getCapacityTier, hasAnyFilter } from './UtilityGridPanel';
+import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds } from './UtilityGridPanel';
 import type { SubstationFilters } from './UtilityGridPanel';
 import { loadOverrides, applyOverrides, saveOverride, removeOverride, exportOverridesJson } from '../utils/substationOverrides';
 import type { OverrideMap } from '../utils/substationOverrides';
-import type { CircuitFeature, SelectedFeeder } from './CircuitMapLayer';
+import type { CircuitFeature, SelectedFeeder, CircuitColorMode } from './CircuitMapLayer';
 import { ExplainabilityPanel } from './ExplainabilityPanel';
-import { ComparePanel } from './ComparePanel';
-import { WhatIfPanel } from './WhatIfPanel';
 import { SavedViewsPanel } from './SavedViewsPanel';
 import { TimelineSlider } from './TimelineSlider';
 import { CompetitorTrackerPanel } from './CompetitorTrackerPanel';
 import { SubstationOverridePanel } from './SubstationOverridePanel';
+import { SubstationOverrideListPanel } from './SubstationOverrideListPanel';
 import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState, SubstationFeature } from '../types';
 import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, loadTractDetailsForCounty, loadTractRegionsForCounty, getRegionDetails } from '../dataLoader/frontendLoader';
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
-import { getCompetitorSites, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
+import { getCompetitorSites, getCompetitorSegments, loadCompetitorData, filterCompetitorSites } from '../dataLoader/competitorLoader';
 import { loadSalesforceData } from '../dataLoader/salesforceLoader';
 import { msaNamesMatch, isNearCoordinates } from '../utils/msaMatch';
+
+/** Decode compact circuit JSON (short keys) back to CircuitFeature. */
+function decodeCircuit(r: any): CircuitFeature {
+  return {
+    id:             r.id,
+    utility:        r.u  ?? '',
+    circuitName:    r.cn ?? '',
+    substationName: r.sn ?? '',
+    voltageKv:      r.vk ?? null,
+    loadAvailKw:    r.lk ?? null,
+    pvHostingKw:    r.pk ?? null,
+    coords:         r.c,
+  };
+}
 
 /**
  * Handles multi-select toggle logic for a list of regions.
@@ -86,9 +99,6 @@ export function MapExplorer() {
   const [selectedTracts, setSelectedTracts] = useState<Region[]>([]);
   const [loadingCounties, setLoadingCounties] = useState(false);
   const [loadingTracts, setLoadingTracts] = useState(false);
-  const [compareRegions, setCompareRegions] = useState<[Region | null, Region | null]>([null, null]);
-  const [showCompare, setShowCompare] = useState(false);
-  const [showWhatIf, setShowWhatIf] = useState(false);
   const [showSavedViews, setShowSavedViews] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date('2026-01-19'));
   const [activeScenario, setActiveScenario] = useState<WhatIfScenario | null>(null);
@@ -123,6 +133,7 @@ export function MapExplorer() {
   const [circuitsByCounty, setCircuitsByCounty] = useState<Record<string, CircuitFeature[]>>({});
   const circuitCountyFetchedRef = useRef<Set<string>>(new Set());
   const [selectedFeeder, setSelectedFeeder] = useState<SelectedFeeder | null>(null);
+  const [circuitColorMode, setCircuitColorMode] = useState<CircuitColorMode>('capacity');
 
   // Utility Grid panel + filter state
   const [showUtilityPanel, setShowUtilityPanel] = useState(false);
@@ -133,6 +144,7 @@ export function MapExplorer() {
   // Voltera override layer — persisted in localStorage
   const [substationOverrides, setSubstationOverrides] = useState<OverrideMap>(() => loadOverrides());
   const [editingSubstationId, setEditingSubstationId] = useState<string | null>(null);
+  const [showOverrideList, setShowOverrideList] = useState(false);
 
   useEffect(() => {
     fetch('/data/exports/substations.json')
@@ -148,14 +160,14 @@ export function MapExplorer() {
     circuitCountyFetchedRef.current.add(countyId);
     fetch(`/data/exports/circuits/county_${countyId}.json`)
       .then(r => r.ok ? r.json() : [])
-      .then((data: CircuitFeature[]) =>
-        setCircuitsByCounty(prev => ({ ...prev, [countyId]: data }))
+      .then((data: any[]) =>
+        setCircuitsByCounty(prev => ({ ...prev, [countyId]: data.map(decodeCircuit) }))
       )
       .catch(() => {});
   }, [selectedTract]);
 
   // Circuits near the selected tract only — filtered from the county data by bounding box.
-  // Census tracts are ~1–8 km across; ±0.06° (~6.5 km) captures circuits within + immediately around the tract.
+  // ±0.18° ≈ 20 km captures the full surrounding grid context for a selected tract.
   const allCircuits = useMemo<CircuitFeature[]>(() => {
     const countyId = (selectedTract as any)?.countyID as string | undefined;
     if (!countyId || !selectedTract) return [];
@@ -165,7 +177,7 @@ export function MapExplorer() {
     const { lat, lng } = selectedTract;
     if (lat == null || lng == null) return county; // no centroid — show all
 
-    const D = 0.06; // ~6.5 km bounding box half-width
+    const D = 0.18; // ~20 km bounding box half-width
     const minLat = lat - D, maxLat = lat + D;
     const minLng = lng - D, maxLng = lng + D;
 
@@ -196,28 +208,50 @@ export function MapExplorer() {
   // Count of emphasized substations (for the panel header)
   const emphasizedCount = emphasizedSubstationIds.size;
 
-  // Filter circuits by active utility + capacity tier + min threshold (voltage class doesn't apply — circuits are all distribution)
+  // Filter circuits by utility and min-capacity threshold only.
+  // Capacity tier quick-select is substation-only — circuits are not hidden by tier.
   const filteredCircuits = useMemo<CircuitFeature[]>(() => {
-    if (!hasAnyFilter(substationFilters)) return allCircuits;
+    const utilityActive = substationFilters.utilities.size > 0;
+    const minKw = substationFilters.minCircuitCapacityKw;
+    if (!utilityActive && minKw === 0) return allCircuits;
     return allCircuits.filter(c => {
-      if (substationFilters.utilities.size > 0 && !substationFilters.utilities.has(c.utility)) return false;
-      if (substationFilters.capacityTiers.size > 0) {
-        const mw = c.loadAvailKw != null ? c.loadAvailKw / 1000 : null;
-        if (!substationFilters.capacityTiers.has(getCapacityTier(mw))) return false;
-      }
-      if (substationFilters.minCircuitCapacityKw > 0) {
-        if (c.loadAvailKw == null || c.loadAvailKw < substationFilters.minCircuitCapacityKw) return false;
-      }
+      if (utilityActive && !substationFilters.utilities.has(c.utility)) return false;
+      if (minKw > 0 && (c.loadAvailKw == null || c.loadAvailKw < minKw)) return false;
       return true;
     });
   }, [allCircuits, substationFilters]);
 
 
+  // Segments excluded from the default Market Intelligence filter.
+  // Pete requested these be pre-filtered so he doesn't manually deselect each session.
+  // The toggle buttons remain — user can re-enable any segment if needed.
+  const EXCLUDED_SEGMENTS = new Set([
+    '3rd Party-Owned School',
+    'Automotive',
+    'Campus',
+    'Charging',
+    'Drayage',
+    'Heavy Duty-Goods',
+    'Heavy Duty-Networks',
+    'Heavy Duty-People',
+    'Last Mile',
+    'Light Duty-Goods',
+    'Light Duty-Networks',
+    'Transit',
+    'Utilities',
+  ]);
+
   // Load competitor + Salesforce data on mount and listen for load events
   useEffect(() => {
     loadCompetitorData();
     loadSalesforceData();
-    const handleLoaded = () => setCompetitorDataLoaded(true);
+    const handleLoaded = () => {
+      setCompetitorDataLoaded(true);
+      // Set default segment filter: include all segments EXCEPT excluded ones
+      const allSegments = getCompetitorSegments();
+      const defaults = allSegments.filter(s => !EXCLUDED_SEGMENTS.has(s));
+      setCompetitorSegments(new Set(defaults));
+    };
     window.addEventListener('competitor:loaded', handleLoaded);
     return () => window.removeEventListener('competitor:loaded', handleLoaded);
   }, []);
@@ -502,13 +536,6 @@ export function MapExplorer() {
     if (selectedMSA) setRegionAnalysisCollapsed(false);
   }, [selectedMSA?.id]);
 
-  // Auto-collapse region analysis when other right panels open
-  useEffect(() => {
-    if (showCompare || showWhatIf) {
-      setRegionAnalysisCollapsed(true);
-    }
-  }, [showCompare, showWhatIf]);
-
   // Lazy-load Tract data + per-county polygons when a County is first selected
   useEffect(() => {
     if (countyIdsForTracts.length > 0) {
@@ -553,17 +580,6 @@ export function MapExplorer() {
     if (!isInRange(rank, tractRange) || !matchesIdFilter(r.id, selectedTractIds)) return false;
     return true;
   });
-
-  function handleAddToCompare(region: Region): void {
-    if (!compareRegions[0]) {
-      setCompareRegions([region, null]);
-    } else if (!compareRegions[1]) {
-      setCompareRegions([compareRegions[0], region]);
-      setShowCompare(true);
-    } else {
-      setCompareRegions([region, compareRegions[1]]);
-    }
-  }
 
   function handleSelectMSA(msa: Region): void {
     setSelectedMSA(msa);
@@ -691,7 +707,7 @@ export function MapExplorer() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-gray-900">Site Ranking Explorer</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Catalyst</h1>
           <div className="flex items-center gap-3">
             <div className="relative">
               <button
@@ -716,6 +732,8 @@ export function MapExplorer() {
                   onToggleLayer={v => { setShowSubstationLayer(v); if (!v) setSelectedFeeder(null); }}
                   showAll={showAllSubstations}
                   onToggleShowAll={setShowAllSubstations}
+                  circuitColorMode={circuitColorMode}
+                  onCircuitColorModeChange={setCircuitColorMode}
                 />
               )}
             </div>
@@ -950,30 +968,7 @@ export function MapExplorer() {
                 />
               )}
             </div>
-            <div className="relative">
-              <button
-                disabled
-                className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed transition-colors relative"
-                title="Coming Soon"
-              >
-                Simulation Analysis
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-purple-500 text-white text-[10px] font-semibold rounded-full">
-                  Soon
-                </span>
-              </button>
-            </div>
-            <div className="relative">
-              <button
-                disabled
-                className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed transition-colors relative"
-                title="Coming Soon"
-              >
-                Compare ({compareRegions.filter(r => r).length})
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-blue-500 text-white text-[10px] font-semibold rounded-full">
-                  Soon
-                </span>
-              </button>
-            </div>
+            {/* Simulation Analysis and Compare tabs hidden for demo — components kept for future use */}
           </div>
         </div>
 
@@ -1084,6 +1079,7 @@ export function MapExplorer() {
             onFeederClick={f => setSelectedFeeder(prev =>
               prev?.utility === f.utility && prev?.circuitName === f.circuitName ? null : f
             )}
+            circuitColorMode={circuitColorMode}
             substations={visibleSubstations}
             nearbySubstationIds={nearbySubstationIds}
             emphasizedSubstationIds={emphasizedSubstationIds}
@@ -1129,28 +1125,6 @@ export function MapExplorer() {
         </div>
 
         {/* Right Panels */}
-        {showWhatIf && (
-          <WhatIfPanel
-            onClose={() => setShowWhatIf(false)}
-            activeScenario={activeScenario}
-            onScenarioChange={setActiveScenario}
-          />
-        )}
-
-        {showCompare && (
-          <ComparePanel
-            regions={compareRegions}
-            onClose={() => setShowCompare(false)}
-            onRemoveRegion={(index) => {
-              const newCompare: [Region | null, Region | null] = [...compareRegions];
-              newCompare[index] = null;
-              setCompareRegions(newCompare);
-            }}
-            allRegions={[...msas, ...counties, ...tracts]}
-            onAddRegion={handleAddToCompare}
-          />
-        )}
-
         {renderRegionAnalysisPanel()}
 
         {/* Substation override editor */}
@@ -1163,9 +1137,21 @@ export function MapExplorer() {
               overrides={substationOverrides}
               onOverridesChange={setSubstationOverrides}
               onClose={() => setEditingSubstationId(null)}
+              onViewAll={() => { setShowOverrideList(true); setEditingSubstationId(null); }}
             />
           );
         })()}
+
+        {/* Overrides list panel */}
+        {showOverrideList && (
+          <SubstationOverrideListPanel
+            overrides={substationOverrides}
+            allSubstations={allSubstations}
+            onOverridesChange={setSubstationOverrides}
+            onEdit={id => { setEditingSubstationId(id); setShowOverrideList(false); }}
+            onClose={() => setShowOverrideList(false)}
+          />
+        )}
       </div>
     </div>
   );

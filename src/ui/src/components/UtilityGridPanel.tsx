@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, X, Zap } from 'lucide-react';
 import type { SubstationFeature } from '../types';
-import type { CircuitFeature } from './CircuitMapLayer';
+import type { CircuitFeature, CircuitColorMode } from './CircuitMapLayer';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type CapacityTier = 'green' | 'yellow' | 'orange' | 'red';
@@ -123,16 +123,18 @@ const VOLTAGE_CLASSES: { id: VoltageClass; label: string; range: string }[] = [
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 interface UtilityGridPanelProps {
-  onClose:           () => void;
-  allSubstations:    SubstationFeature[];
-  circuits?:         CircuitFeature[];
-  filteredCount:     number;
-  filters:           SubstationFilters;
-  onFiltersChange:   (f: SubstationFilters) => void;
-  showLayer:         boolean;
-  onToggleLayer:     (show: boolean) => void;
-  showAll:           boolean;
-  onToggleShowAll:   (v: boolean) => void;
+  onClose:                 () => void;
+  allSubstations:          SubstationFeature[];
+  circuits?:               CircuitFeature[];
+  filteredCount:           number;
+  filters:                 SubstationFilters;
+  onFiltersChange:         (f: SubstationFilters) => void;
+  showLayer:               boolean;
+  onToggleLayer:           (show: boolean) => void;
+  showAll:                 boolean;
+  onToggleShowAll:         (v: boolean) => void;
+  circuitColorMode?:       CircuitColorMode;
+  onCircuitColorModeChange?: (mode: CircuitColorMode) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -147,6 +149,8 @@ export function UtilityGridPanel({
   onToggleLayer,
   showAll,
   onToggleShowAll,
+  circuitColorMode = 'capacity',
+  onCircuitColorModeChange,
 }: UtilityGridPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [subDraft,  setSubDraft]  = useState('');
@@ -374,6 +378,50 @@ export function UtilityGridPanel({
             <span>20 MW</span>
           </div>
         </section>
+
+        {/* Circuit Color By */}
+        {circuits.length > 0 && onCircuitColorModeChange && (
+          <section>
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Circuit Color By</p>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button
+                onClick={() => onCircuitColorModeChange('capacity')}
+                className={`flex-1 py-1.5 font-medium transition-colors ${
+                  circuitColorMode === 'capacity'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                Capacity
+              </button>
+              <button
+                onClick={() => onCircuitColorModeChange('voltage')}
+                className={`flex-1 py-1.5 font-medium transition-colors border-l border-gray-200 ${
+                  circuitColorMode === 'voltage'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                Voltage
+              </button>
+            </div>
+            {circuitColorMode === 'voltage' && (
+              <div className="mt-2 space-y-1">
+                {[
+                  { color: '#0078d4', label: '25+ kV' },
+                  { color: '#7ec8e3', label: '15–25 kV' },
+                  { color: '#707070', label: '5–15 kV' },
+                  { color: '#d0d0d0', label: '< 5 kV' },
+                ].map(({ color, label }) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <div className="w-5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="text-[10px] text-gray-500">{label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Capacity Tier Quick-select */}
         <section>

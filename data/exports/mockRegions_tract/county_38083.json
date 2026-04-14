@@ -1,1 +1,1 @@
-[{"id":"38083960200","name":"Census Tract 9602","geoLevel":"TRACT","rank":63876,"score":0.003345306804851335,"customerCount":0,"inGeofence":false,"lat":47.575475,"lng":-100.345561,"countyID":"38083","msaID":null,"msaName":null,"gridLoadCapacity":381.3,"gridReadinessScore":70.6}]
+[{"id":"38083960200","name":"Census Tract 9602","geoLevel":"TRACT","rank":63876,"score":0.003345306804851335,"customerCount":0,"inGeofence":false,"lat":47.575475,"lng":-100.345561,"countyID":"38083","msaID":null,"msaName":null,"gridLoadCapacity":381.3,"gridReadinessScore":60.0}]

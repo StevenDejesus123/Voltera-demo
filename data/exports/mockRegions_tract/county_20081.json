@@ -1,1 +1,1 @@
-[{"id":"20081463100","name":"Census Tract 4631","geoLevel":"TRACT","rank":51935,"score":0.005932942494032659,"customerCount":0,"inGeofence":false,"lat":37.562263,"lng":-100.871204,"countyID":"20081","msaID":null,"msaName":null,"gridLoadCapacity":0.33,"gridReadinessScore":61.5}]
+[{"id":"20081463100","name":"Census Tract 4631","geoLevel":"TRACT","rank":51935,"score":0.005932942494032659,"customerCount":0,"inGeofence":false,"lat":37.562263,"lng":-100.871204,"countyID":"20081","msaID":null,"msaName":null,"gridLoadCapacity":330.0,"gridReadinessScore":63.6}]

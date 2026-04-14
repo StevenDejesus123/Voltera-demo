@@ -20,12 +20,27 @@ export interface CircuitFeature {
   coords: number[][][];   // array of lines, each line is [[lng, lat], ...]
 }
 
+export type CircuitColorMode = 'capacity' | 'voltage';
+
 // ── Load availability → color ─────────────────────────────────────────────
 function loadColor(kw: number | null): string {
   if (kw == null || kw <= 0) return '#ef4444';   // red
   if (kw < 1000)             return '#f97316';   // orange
   if (kw < 5000)             return '#eab308';   // yellow
   return '#22c55e';                              // green
+}
+
+// ── Voltage band → color ──────────────────────────────────────────────────
+function voltageColor(kv: number | null): string {
+  if (kv == null)  return '#d0d0d0';  // light gray (unknown)
+  if (kv < 5)      return '#d0d0d0';  // light gray  < 5 kV
+  if (kv < 15)     return '#707070';  // dark gray   5–15 kV
+  if (kv < 25)     return '#7ec8e3';  // light blue  15–25 kV
+  return '#0078d4';                   // bright blue 25+ kV
+}
+
+function circuitColor(c: CircuitFeature, mode: CircuitColorMode): string {
+  return mode === 'voltage' ? voltageColor(c.voltageKv) : loadColor(c.loadAvailKw);
 }
 
 function loadLabel(kw: number | null): string {
@@ -41,8 +56,21 @@ function blank(s: string | null | undefined): boolean {
   return l === 'nan' || l === 'none' || l === 'null';
 }
 
-function tooltipHtml(c: CircuitFeature): string {
+function tooltipHtml(c: CircuitFeature, mode: CircuitColorMode): string {
   const color = loadColor(c.loadAvailKw);
+  const legend = mode === 'voltage'
+    ? `<div style="margin-top:5px;padding-top:4px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af">
+        <span style="color:#0078d4">━</span> 25+ kV &nbsp;
+        <span style="color:#7ec8e3">━</span> 15–25 kV &nbsp;
+        <span style="color:#707070">━</span> 5–15 kV &nbsp;
+        <span style="color:#d0d0d0">━</span> &lt;5 kV
+      </div>`
+    : `<div style="margin-top:5px;padding-top:4px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af">
+        <span style="color:#22c55e">━</span> &gt;5 MW &nbsp;
+        <span style="color:#eab308">━</span> 1–5 MW &nbsp;
+        <span style="color:#f97316">━</span> &lt;1 MW &nbsp;
+        <span style="color:#ef4444">━</span> None
+      </div>`;
   return `
     <div style="font-size:11px;line-height:1.5;min-width:180px">
       <p style="font-weight:600;color:#1f2937;margin:0 0 1px">${blank(c.circuitName) ? 'Unnamed Circuit' : c.circuitName}</p>
@@ -52,14 +80,9 @@ function tooltipHtml(c: CircuitFeature): string {
       <p style="color:#4b5563;margin:0">
         Load Availability: <span style="font-weight:600;color:${color}">${loadLabel(c.loadAvailKw)}</span>
       </p>
-      ${c.voltageKv != null ? `<p style="color:#4b5563;margin:0">Voltage: <span style="font-weight:500">${c.voltageKv} kV (Distribution)</span></p>` : ''}
+      ${c.voltageKv != null ? `<p style="color:#4b5563;margin:0">Voltage: <span style="font-weight:500">${c.voltageKv} kV</span></p>` : ''}
       ${c.pvHostingKw != null ? `<p style="color:#4b5563;margin:0">PV Hosting: <span style="font-weight:500">${loadLabel(c.pvHostingKw)}</span></p>` : ''}
-      <div style="margin-top:5px;padding-top:4px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af">
-        <span style="color:#22c55e">━</span> &gt;5 MW &nbsp;
-        <span style="color:#eab308">━</span> 1–5 MW &nbsp;
-        <span style="color:#f97316">━</span> &lt;1 MW &nbsp;
-        <span style="color:#ef4444">━</span> None
-      </div>
+      ${legend}
       <p style="margin:4px 0 0;font-size:10px;color:#9ca3af;font-style:italic">Click to highlight full feeder</p>
     </div>`;
 }
@@ -70,6 +93,7 @@ interface CircuitMapLayerProps {
   visible?: boolean;
   selectedFeeder?: SelectedFeeder | null;
   onFeederClick?: (feeder: SelectedFeeder) => void;
+  colorMode?: CircuitColorMode;
 }
 
 interface PolylineEntry {
@@ -77,12 +101,13 @@ interface PolylineEntry {
   circuit: CircuitFeature;
 }
 
-function baseStyle(c: CircuitFeature, sf: SelectedFeeder | null): L.PathOptions {
-  if (!sf) return { weight: 2, opacity: 0.7, color: loadColor(c.loadAvailKw) };
+function baseStyle(c: CircuitFeature, sf: SelectedFeeder | null, mode: CircuitColorMode): L.PathOptions {
+  const color = circuitColor(c, mode);
+  if (!sf) return { weight: 2, opacity: 0.7, color };
   const isThis = sf.utility === c.utility && sf.circuitName === c.circuitName;
   return isThis
-    ? { weight: 5, opacity: 1.0, color: loadColor(c.loadAvailKw) }
-    : { weight: 1, opacity: 0.18, color: loadColor(c.loadAvailKw) };
+    ? { weight: 5, opacity: 1.0, color }
+    : { weight: 1, opacity: 0.18, color };
 }
 
 export function CircuitMapLayer({
@@ -90,14 +115,17 @@ export function CircuitMapLayer({
   visible = true,
   selectedFeeder = null,
   onFeederClick,
+  colorMode = 'capacity',
 }: CircuitMapLayerProps) {
   const map = useMap();
   const entriesRef = useRef<PolylineEntry[]>([]);
-  // Use a ref so event handler closures always read the latest value
+  // Use refs so event handler closures always read the latest values
   const selectedFeederRef = useRef<SelectedFeeder | null>(selectedFeeder);
   selectedFeederRef.current = selectedFeeder;
+  const colorModeRef = useRef<CircuitColorMode>(colorMode);
+  colorModeRef.current = colorMode;
 
-  // ── Build/rebuild polylines when circuits or visibility change ────────────
+  // ── Build/rebuild polylines when circuits, visibility, or colorMode change ─
   useEffect(() => {
     if (!map.getPane('circuitPane')) {
       const pane = map.createPane('circuitPane');
@@ -111,6 +139,7 @@ export function CircuitMapLayer({
 
     const newEntries: PolylineEntry[] = [];
     const sf = selectedFeederRef.current;
+    const mode = colorModeRef.current;
 
     for (const c of circuits) {
       if (!c.coords || c.coords.length === 0) continue;
@@ -121,7 +150,7 @@ export function CircuitMapLayer({
         const latLngs = line.map(([lng, lat]) => [lat, lng] as [number, number]);
 
         const poly = L.polyline(latLngs, {
-          ...baseStyle(c, sf),
+          ...baseStyle(c, sf, mode),
           interactive: true,
           pane: 'circuitPane',
         });
@@ -136,7 +165,7 @@ export function CircuitMapLayer({
         });
 
         poly.on('mouseout', () => {
-          poly.setStyle(baseStyle(c, selectedFeederRef.current));
+          poly.setStyle(baseStyle(c, selectedFeederRef.current, colorModeRef.current));
         });
 
         poly.on('click', (e) => {
@@ -149,7 +178,7 @@ export function CircuitMapLayer({
           });
         });
 
-        poly.bindTooltip(tooltipHtml(c), {
+        poly.bindTooltip(tooltipHtml(c, mode), {
           sticky: true,
           direction: 'top',
           offset: [0, -6],
@@ -167,14 +196,14 @@ export function CircuitMapLayer({
       entriesRef.current = [];
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, circuits, visible]);
+  }, [map, circuits, visible, colorMode]);
 
-  // ── Re-style all existing polylines when selection changes ────────────────
+  // ── Re-style all existing polylines when selection or colorMode changes ───
   useEffect(() => {
     for (const { poly, circuit } of entriesRef.current) {
-      poly.setStyle(baseStyle(circuit, selectedFeeder));
+      poly.setStyle(baseStyle(circuit, selectedFeeder, colorMode));
     }
-  }, [selectedFeeder]);
+  }, [selectedFeeder, colorMode]);
 
   return null;
 }

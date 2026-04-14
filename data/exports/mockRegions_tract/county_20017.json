@@ -1,1 +1,1 @@
-[{"id":"20017960600","name":"Census Tract 9606","geoLevel":"TRACT","rank":64316,"score":0.003286552592529024,"customerCount":0,"inGeofence":false,"lat":38.30206,"lng":-96.593948,"countyID":"20017","msaID":null,"msaName":null,"gridLoadCapacity":0.33,"gridReadinessScore":59.9}]
+[{"id":"20017960600","name":"Census Tract 9606","geoLevel":"TRACT","rank":64316,"score":0.003286552592529024,"customerCount":0,"inGeofence":false,"lat":38.30206,"lng":-96.593948,"countyID":"20017","msaID":null,"msaName":null,"gridLoadCapacity":330.0,"gridReadinessScore":62.0}]

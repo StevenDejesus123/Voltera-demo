@@ -12,7 +12,7 @@ export function LandingPage({ onExplore }: LandingPageProps) {
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 mb-6">
             <MapPin className="w-12 h-12 text-indigo-600" />
-            <h1 className="text-5xl font-bold text-gray-900">Site Ranking Explorer</h1>
+            <h1 className="text-5xl font-bold text-gray-900">Catalyst</h1>
           </div>
           
           <h2 className="text-2xl text-gray-700 mb-6">

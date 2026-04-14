@@ -45,11 +45,11 @@ const CATEGORY_ORDER = ['Customer', 'Competitor', 'Voltera'];
 const STAGE_ORDER = [
   'Market Search',
   'Short List',
+  'Off Market Target',
+  'Unsolicited Offer Sent',
   'LOI Negotiation',
   'PSA/Lease Negotiation',
   'Inspection Period',
-  'Unsolicited Offer Sent',
-  'Off Market Target',
   'Closed Won',
 ] as const;
 

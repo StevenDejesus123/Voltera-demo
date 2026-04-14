@@ -1,1 +1,1 @@
-[{"id":"72049950500","name":"Census Tract 9505","geoLevel":"TRACT","rank":48818,"score":0.007857362351921388,"customerCount":0,"inGeofence":false,"lat":18.315936,"lng":-65.287964,"countyID":"72049","msaID":null,"msaName":null,"gridLoadCapacity":0.32,"gridReadinessScore":38.1}]
+[{"id":"72049950500","name":"Census Tract 9505","geoLevel":"TRACT","rank":48818,"score":0.007857362351921388,"customerCount":0,"inGeofence":false,"lat":18.315936,"lng":-65.287964,"countyID":"72049","msaID":null,"msaName":null,"gridLoadCapacity":320.0,"gridReadinessScore":39.8}]

@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, TrendingUp, MapPin, Users, CheckCircle2, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen, ChevronRight } from 'lucide-react';
+import { X, TrendingUp, MapPin, Users, AlertCircle, GitCompare, Zap, Building2, Car, DollarSign, Thermometer, CloudSnow, CloudRain, Activity, Layers, PanelRightClose, PanelRightOpen, ChevronRight } from 'lucide-react';
 import { Region, GeoLevel, RegionDetails, SubstationFeature } from '../types';
 import { getSalesforceMSASummary, loadSalesforceData } from '../dataLoader/salesforceLoader';
 import { type AggType, aggregateDetails, resolveAggType, shouldShow } from '../utils/analysisUtils';
-import { generateGridInsight, type InsightLevel } from '../utils/gridInsight';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -55,11 +54,11 @@ function SkeletonSection({ rows = 3, label, icon: Icon }: { rows?: number; label
 function DetailSectionsSkeleton() {
   return (
     <div className="space-y-4">
-      <SkeletonSection label="Infrastructure" icon={Zap} rows={3} />
+      <SkeletonSection label="Mobility & Rideshare" icon={Activity} rows={3} />
+      <SkeletonSection label="Infrastructure" icon={Zap} rows={2} />
       <SkeletonSection label="Demographics" icon={Users} rows={3} />
-      <SkeletonSection label="Mobility & Rideshare" icon={Activity} rows={2} />
-      <SkeletonSection label="Costs" icon={DollarSign} rows={3} />
-      <SkeletonSection label="Climate & Risk" icon={Thermometer} rows={4} />
+      <SkeletonSection label="Funding & Incentives" icon={DollarSign} rows={2} />
+      <SkeletonSection label="Costs" icon={DollarSign} rows={2} />
     </div>
   );
 }
@@ -179,6 +178,22 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract, near
 
   return (
     <div className="space-y-4">
+      {/* Mobility & Rideshare — first section at all levels */}
+      <CollapsibleSection title="Mobility & Rideshare" icon={Activity} iconColor="text-green-500" isOpen={openSections.has('mobility')} onToggle={() => toggle('mobility')}>
+        {shouldShow('rideshareTrips', geoLevel) && details.rideshareTrips !== undefined && (
+          <DetailItem label="# of Rideshare Rides per Year" value={formatNumber(Math.round(details.rideshareTrips / 2))} icon={Car} aggregation={agg('rideshareTrips')} />
+        )}
+        {shouldShow('ridesharePerCapita', geoLevel) && details.ridesharePerCapita !== undefined && (
+          <DetailItem label="Rideshare Per Capita" value={formatDecimal(details.ridesharePerCapita / 2, 1)} aggregation={agg('ridesharePerCapita')} />
+        )}
+        {shouldShow('rideshareDensity', geoLevel) && details.rideshareDensity !== undefined && (
+          <DetailItem label="Rideshare Density" value={formatDecimal(details.rideshareDensity / 2, 0)} aggregation={agg('rideshareDensity')} />
+        )}
+        {shouldShow('avTestingCount', geoLevel) && details.avTestingCount !== undefined && (
+          <DetailItem label="AV Testing ODDs" value={formatNumber(details.avTestingCount)} icon={Car} />
+        )}
+      </CollapsibleSection>
+
       {/* Infrastructure */}
       <CollapsibleSection title="Infrastructure" icon={Zap} iconColor="text-yellow-500" isOpen={openSections.has('infra')} onToggle={() => toggle('infra')}>
         {shouldShow('evStationCount', geoLevel) && details.evStationCount !== undefined && (
@@ -191,13 +206,28 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract, near
             icon={Building2}
           />
         )}
-        {shouldShow('avTestingCount', geoLevel) && details.avTestingCount !== undefined && (
-          <DetailItem label="AV Testing Sites" value={formatNumber(details.avTestingCount)} icon={Car} />
-        )}
-        {shouldShow('avTestingVehicles', geoLevel) && details.avTestingVehicles !== undefined && (
-          <DetailItem label="AV Testing Vehicles" value={formatNumber(details.avTestingVehicles)} icon={Car} />
-        )}
       </CollapsibleSection>
+
+      {/* Climate & Risk — MSA only */}
+      {geoLevel.toUpperCase() === 'MSA' && (
+        <CollapsibleSection title="Climate & Risk" icon={Thermometer} iconColor="text-orange-500" isOpen={openSections.has('climate')} onToggle={() => toggle('climate')}>
+          {details.snowdays != null && (
+            <DetailItem label="Annual Snow Days" value={formatNumber(details.snowdays)} icon={CloudSnow} aggregation={agg('snowdays')} />
+          )}
+          {details.temperature != null && (
+            <DetailItem label="Avg Temperature" value={formatDecimal(details.temperature, 1, '', '°F')} icon={Thermometer} aggregation={agg('temperature')} />
+          )}
+          {details.precipitation != null && (
+            <DetailItem label="Precipitation" value={formatDecimal(details.precipitation, 1, '', ' in')} icon={CloudRain} aggregation={agg('precipitation')} />
+          )}
+          {details.hurricaneRisk != null && (
+            <DetailItem label="Hurricane Risk" value={formatDecimal(details.hurricaneRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('hurricaneRisk')} />
+          )}
+          {details.stormRisk != null && (
+            <DetailItem label="Storm Risk" value={formatDecimal(details.stormRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('stormRisk')} />
+          )}
+        </CollapsibleSection>
+      )}
 
       {/* Demographics */}
       <CollapsibleSection title="Demographics" icon={Users} iconColor="text-blue-500" isOpen={openSections.has('demo')} onToggle={() => toggle('demo')}>
@@ -213,25 +243,9 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract, near
         {shouldShow('avgWeeklyWage', geoLevel) && details.avgWeeklyWage !== undefined && (
           <DetailItem label="Avg Weekly Wage" value={formatNumber(details.avgWeeklyWage, '$')} icon={DollarSign} aggregation={agg('avgWeeklyWage')} />
         )}
-        {shouldShow('publicTransitPct', geoLevel) && details.publicTransitPct != null && (
-          <DetailItem label="Public Transit %" value={formatDecimal(details.publicTransitPct * 100, 1, '', '%')} aggregation={agg('publicTransitPct')} />
-        )}
       </CollapsibleSection>
 
-      {/* Mobility */}
-      <CollapsibleSection title="Mobility & Rideshare" icon={Activity} iconColor="text-green-500" isOpen={openSections.has('mobility')} onToggle={() => toggle('mobility')}>
-        {shouldShow('rideshareTrips', geoLevel) && details.rideshareTrips !== undefined && (
-          <DetailItem label="Rideshare Trips" value={formatNumber(details.rideshareTrips)} icon={Car} aggregation={agg('rideshareTrips')} />
-        )}
-        {shouldShow('ridesharePerCapita', geoLevel) && details.ridesharePerCapita !== undefined && (
-          <DetailItem label="Rideshare Per Capita" value={formatNumber(details.ridesharePerCapita)} aggregation={agg('ridesharePerCapita')} />
-        )}
-        {shouldShow('rideshareDensity', geoLevel) && details.rideshareDensity !== undefined && (
-          <DetailItem label="Rideshare Density" value={formatNumber(details.rideshareDensity)} aggregation={agg('rideshareDensity')} />
-        )}
-      </CollapsibleSection>
-
-      {/* Funding */}
+      {/* Funding & Incentives */}
       {(shouldShow('federalFundingAmount', geoLevel) || shouldShow('stateFundingCount', geoLevel)) &&
         (details.federalFundingAmount !== undefined || details.stateFundingCount !== undefined) && (
           <CollapsibleSection title="Funding & Incentives" icon={DollarSign} iconColor="text-emerald-500" isOpen={openSections.has('funding')} onToggle={() => toggle('funding')}>
@@ -404,72 +418,8 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract, near
           {shouldShow('gridCircuitDist', geoLevel) && details.gridCircuitDist !== undefined && (
             <DetailItem label="Distance to Grid Circuit" value={formatNumber(details.gridCircuitDist, '', ' m')} aggregation={agg('gridCircuitDist')} />
           )}
-          {/* Grid Assessment — single-region tract only */}
-          {!showAggBadges && (() => {
-            const insight = generateGridInsight(details, nearbySubstations);
-            if (!insight.capacity && !insight.access && !insight.voltage && !insight.territory) return null;
-            const LEVEL_STYLES: Record<InsightLevel, { bar: string; badge: string; bg: string; text: string }> = {
-              strong:   { bar: 'bg-green-500',  badge: 'bg-green-100 text-green-800',  bg: 'bg-green-50',  text: 'text-green-800' },
-              moderate: { bar: 'bg-yellow-500', badge: 'bg-yellow-100 text-yellow-800', bg: 'bg-yellow-50', text: 'text-yellow-800' },
-              limited:  { bar: 'bg-orange-500', badge: 'bg-orange-100 text-orange-800', bg: 'bg-orange-50', text: 'text-orange-800' },
-              critical: { bar: 'bg-red-500',    badge: 'bg-red-100 text-red-800',       bg: 'bg-red-50',    text: 'text-red-800' },
-            };
-            const s = LEVEL_STYLES[insight.level];
-            return (
-              <div className={`mt-2 rounded-lg border border-gray-200 overflow-hidden`}>
-                {/* Header bar */}
-                <div className={`${s.bg} px-3 py-2 flex items-center gap-2 border-b border-gray-200`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${s.badge}`}>
-                    Grid Assessment
-                  </span>
-                  <span className={`text-xs font-medium ${s.text}`}>{insight.headline}</span>
-                </div>
-                {/* Insight bullets */}
-                <div className="px-3 py-2 space-y-2">
-                  {[
-                    { icon: '⚡', text: insight.capacity },
-                    { icon: '📍', text: insight.access },
-                    { icon: '🔌', text: insight.voltage },
-                    { icon: '🏢', text: insight.territory },
-                  ].filter(r => r.text).map((row, i) => (
-                    <p key={i} className="text-[11px] text-gray-600 leading-relaxed flex gap-1.5">
-                      <span className="shrink-0 mt-0.5">{row.icon}</span>
-                      <span>{row.text}</span>
-                    </p>
-                  ))}
-                  {/* Recommendation */}
-                  <div className={`mt-1 pt-2 border-t border-gray-200`}>
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Recommendation</p>
-                    <p className="text-[11px] text-gray-700 leading-relaxed">{insight.recommendation}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
         </CollapsibleSection>
       )}
-
-      {/* Climate & Risk */}
-      <CollapsibleSection title="Climate & Risk" icon={Thermometer} iconColor="text-orange-500" isOpen={openSections.has('climate')} onToggle={() => toggle('climate')}>
-        {shouldShow('snowdays', geoLevel) && details.snowdays != null && (
-          <DetailItem label="Annual Snow Days" value={formatNumber(details.snowdays)} icon={CloudSnow} aggregation={agg('snowdays')} />
-        )}
-        {shouldShow('temperature', geoLevel) && details.temperature != null && (
-          <DetailItem label="Avg Temperature" value={formatDecimal(details.temperature, 1, '', '°F')} icon={Thermometer} aggregation={agg('temperature')} />
-        )}
-        {shouldShow('precipitation', geoLevel) && details.precipitation != null && (
-          <DetailItem label="Precipitation" value={formatDecimal(details.precipitation, 1, '', ' in')} icon={CloudRain} aggregation={agg('precipitation')} />
-        )}
-        {shouldShow('hurricaneRisk', geoLevel) && details.hurricaneRisk != null && (
-          <DetailItem label="Hurricane Risk" value={formatDecimal(details.hurricaneRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('hurricaneRisk')} />
-        )}
-        {shouldShow('stormRisk', geoLevel) && details.stormRisk != null && (
-          <DetailItem label="Storm Risk" value={formatDecimal(details.stormRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('stormRisk')} />
-        )}
-        {shouldShow('earthquakeRisk', geoLevel) && details.earthquakeRisk != null && (
-          <DetailItem label="Earthquake Risk" value={formatDecimal(details.earthquakeRisk, 1, 'Rating: ', '')} icon={AlertCircle} aggregation={agg('earthquakeRisk')} />
-        )}
-      </CollapsibleSection>
     </div>
   );
 }
@@ -629,7 +579,6 @@ export function ExplainabilityPanel({
     const totalCustomers = regions.reduce((s, r) => s + r.customerCount, 0);
     const avgScore = regions.reduce((s, r) => s + r.score, 0) / regions.length;
     const bestRank = Math.min(...regions.map(r => r.rank));
-    const inGeofenceCount = regions.filter(r => r.inGeofence).length;
 
     return (
       <div className="w-96 bg-white border-l border-gray-200 overflow-y-auto flex-shrink-0 shadow-xl">
@@ -699,33 +648,6 @@ export function ExplainabilityPanel({
               </div>
             </div>
           )}
-
-          {/* Geofence Status */}
-          <div className={`flex items-center gap-3 p-4 rounded-lg border ${
-            inGeofenceCount > 0 ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200'
-          }`}>
-            {inGeofenceCount > 0 ? (
-              <>
-                <CheckCircle2 className="w-5 h-5 text-purple-600 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-purple-900">
-                    {inGeofenceCount} of {regions.length} inside Customer Interest Zone
-                  </p>
-                  <p className="text-xs text-purple-700">Priority expansion area</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">
-                    None inside Customer Interest Zone
-                  </p>
-                  <p className="text-xs text-gray-500">Consider for future targeting</p>
-                </div>
-              </>
-            )}
-          </div>
 
           {/* Aggregated Detail Sections */}
           {isLoadingDetails ? (
@@ -810,34 +732,9 @@ export function ExplainabilityPanel({
           </div>
         </div>
 
-        {/* SF Customer Count + Geofence Status — MSA-level only */}
+        {/* SF Customer Count — MSA-level only */}
         {singleRegion.geoLevel?.toUpperCase() === 'MSA' && (
-          <>
-            <SalesforceCustomerCount region={singleRegion} />
-
-            <div className={`flex items-center gap-3 p-4 rounded-lg border ${singleRegion.inGeofence
-              ? 'bg-purple-50 border-purple-200'
-              : 'bg-gray-50 border-gray-200'
-            }`}>
-              {singleRegion.inGeofence ? (
-                <>
-                  <CheckCircle2 className="w-5 h-5 text-purple-600" />
-                  <div>
-                    <p className="text-sm font-medium text-purple-900">Inside Customer Interest Zone</p>
-                    <p className="text-xs text-purple-700">Priority expansion area</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-5 h-5 text-gray-400" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Outside Customer Interest Zone</p>
-                    <p className="text-xs text-gray-500">Consider for future targeting</p>
-                  </div>
-                </>
-              )}
-            </div>
-          </>
+          <SalesforceCustomerCount region={singleRegion} />
         )}
 
         {/* Detail Sections */}
@@ -884,9 +781,10 @@ export function ExplainabilityPanel({
             </div>
           </div>
         ) : singleRegion.factors && singleRegion.factors.length > 0 && (() => {
-          const visibleFactors = singleRegion.factors.filter(
-            f => !f.name?.toLowerCase().includes('land value')
-          );
+          const IMPACT_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+          const visibleFactors = singleRegion.factors
+            .filter(f => !f.name?.toLowerCase().includes('land value'))
+            .sort((a, b) => (IMPACT_ORDER[a.impact] ?? 3) - (IMPACT_ORDER[b.impact] ?? 3));
           if (visibleFactors.length === 0) return null;
           return (
           <div>

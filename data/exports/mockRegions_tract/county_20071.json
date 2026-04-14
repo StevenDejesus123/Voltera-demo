@@ -1,1 +1,1 @@
-[{"id":"20071958100","name":"Census Tract 9581","geoLevel":"TRACT","rank":64703,"score":0.003229599644505217,"customerCount":0,"inGeofence":false,"lat":38.480555,"lng":-101.805982,"countyID":"20071","msaID":null,"msaName":null,"gridLoadCapacity":1.0,"gridReadinessScore":67.1}]
+[{"id":"20071958100","name":"Census Tract 9581","geoLevel":"TRACT","rank":64703,"score":0.003229599644505217,"customerCount":0,"inGeofence":false,"lat":38.480555,"lng":-101.805982,"countyID":"20071","msaID":null,"msaName":null,"gridLoadCapacity":1000.0,"gridReadinessScore":70.9}]

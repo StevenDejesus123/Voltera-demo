@@ -1,1 +1,1 @@
-[{"id":"02100000100","name":"Census Tract 1","geoLevel":"TRACT","rank":65822,"score":0.00301664574939009,"customerCount":0,"inGeofence":false,"lat":59.120563,"lng":-135.498617,"countyID":"02100","msaID":null,"msaName":null,"gridLoadCapacity":77.3,"gridReadinessScore":66.6}]
+[{"id":"02100000100","name":"Census Tract 1","geoLevel":"TRACT","rank":65822,"score":0.00301664574939009,"customerCount":0,"inGeofence":false,"lat":59.120563,"lng":-135.498617,"countyID":"02100","msaID":null,"msaName":null,"gridLoadCapacity":77.3,"gridReadinessScore":43.0}]

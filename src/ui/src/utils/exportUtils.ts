@@ -843,16 +843,28 @@ function mergePolygonsByUnion(
       return b || f;
     });
 
-    // Iteratively union all buffered polygons
-    let merged: Feature<Polygon | MultiPolygon, GeoJsonProperties> = buffered[0] as Feature<Polygon | MultiPolygon, GeoJsonProperties>;
-    for (let i = 1; i < buffered.length; i++) {
-      try {
-        const result = union(featureCollection([merged, buffered[i] as Feature<Polygon | MultiPolygon, GeoJsonProperties>]));
-        if (result) merged = result;
-      } catch (e) {
-        console.warn('Union failed for polygon', i, e);
+    // Divide-and-conquer union: pair up polygons each round so the accumulated
+    // geometry stays small as long as possible (O(n log n) vs O(n²) for the
+    // naive sequential approach — critical for large selections like 1908 tracts).
+    let layer = buffered as Feature<Polygon | MultiPolygon, GeoJsonProperties>[];
+    while (layer.length > 1) {
+      const next: Feature<Polygon | MultiPolygon, GeoJsonProperties>[] = [];
+      for (let i = 0; i < layer.length; i += 2) {
+        if (i + 1 >= layer.length) {
+          next.push(layer[i]);
+          continue;
+        }
+        try {
+          const result = union(featureCollection([layer[i], layer[i + 1]]));
+          next.push(result ?? layer[i]);
+        } catch (e) {
+          console.warn('Union failed at pair', i, e);
+          next.push(layer[i]);
+        }
       }
+      layer = next;
     }
+    let merged = layer[0];
 
     // Remove interior holes BEFORE shrinking — at this point the buffered union
     // is maximally connected so enclosed gaps are true interior rings that can
