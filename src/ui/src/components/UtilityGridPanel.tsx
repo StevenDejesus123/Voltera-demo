@@ -408,9 +408,9 @@ export function UtilityGridPanel({
             {circuitColorMode === 'voltage' && (
               <div className="mt-2 space-y-1">
                 {[
-                  { color: '#0078d4', label: '25+ kV' },
-                  { color: '#7ec8e3', label: '15–25 kV' },
-                  { color: '#707070', label: '5–15 kV' },
+                  { color: '#7e22ce', label: '25+ kV' },
+                  { color: '#c084fc', label: '15–25 kV' },
+                  { color: '#7ec8e3', label: '5–15 kV' },
                   { color: '#d0d0d0', label: '< 5 kV' },
                 ].map(({ color, label }) => (
                   <div key={label} className="flex items-center gap-2">

@@ -32,11 +32,11 @@ function loadColor(kw: number | null): string {
 
 // ── Voltage band → color ──────────────────────────────────────────────────
 function voltageColor(kv: number | null): string {
-  if (kv == null)  return '#d0d0d0';  // light gray (unknown)
+  if (kv == null)  return '#d0d0d0';  // light gray  (unknown)
   if (kv < 5)      return '#d0d0d0';  // light gray  < 5 kV
-  if (kv < 15)     return '#707070';  // dark gray   5–15 kV
-  if (kv < 25)     return '#7ec8e3';  // light blue  15–25 kV
-  return '#0078d4';                   // bright blue 25+ kV
+  if (kv < 15)     return '#7ec8e3';  // light blue  5–15 kV
+  if (kv < 25)     return '#c084fc';  // light purple 15–25 kV
+  return '#7e22ce';                   // deep purple  25+ kV
 }
 
 function circuitColor(c: CircuitFeature, mode: CircuitColorMode): string {
@@ -60,9 +60,9 @@ function tooltipHtml(c: CircuitFeature, mode: CircuitColorMode): string {
   const color = loadColor(c.loadAvailKw);
   const legend = mode === 'voltage'
     ? `<div style="margin-top:5px;padding-top:4px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af">
-        <span style="color:#0078d4">━</span> 25+ kV &nbsp;
-        <span style="color:#7ec8e3">━</span> 15–25 kV &nbsp;
-        <span style="color:#707070">━</span> 5–15 kV &nbsp;
+        <span style="color:#7e22ce">━</span> 25+ kV &nbsp;
+        <span style="color:#c084fc">━</span> 15–25 kV &nbsp;
+        <span style="color:#7ec8e3">━</span> 5–15 kV &nbsp;
         <span style="color:#d0d0d0">━</span> &lt;5 kV
       </div>`
     : `<div style="margin-top:5px;padding-top:4px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af">
