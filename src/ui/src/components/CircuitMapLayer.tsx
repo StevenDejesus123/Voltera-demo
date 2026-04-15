@@ -103,11 +103,11 @@ interface PolylineEntry {
 
 function baseStyle(c: CircuitFeature, sf: SelectedFeeder | null, mode: CircuitColorMode): L.PathOptions {
   const color = circuitColor(c, mode);
-  if (!sf) return { weight: 2, opacity: 0.7, color };
+  if (!sf) return { weight: 3.5, opacity: 0.8, color };
   const isThis = sf.utility === c.utility && sf.circuitName === c.circuitName;
   return isThis
-    ? { weight: 5, opacity: 1.0, color }
-    : { weight: 1, opacity: 0.18, color };
+    ? { weight: 6, opacity: 1.0, color }
+    : { weight: 1.5, opacity: 0.18, color };
 }
 
 export function CircuitMapLayer({
@@ -159,7 +159,7 @@ export function CircuitMapLayer({
           const cur = selectedFeederRef.current;
           const isThis = !cur || (cur.utility === c.utility && cur.circuitName === c.circuitName);
           if (isThis) {
-            poly.setStyle({ weight: cur ? 7 : 4, opacity: 1.0 });
+            poly.setStyle({ weight: cur ? 8 : 5.5, opacity: 1.0 });
           }
           // Don't brighten dimmed segments that belong to a different feeder
         });

@@ -75,7 +75,7 @@ function formatNumber(val: number | undefined | null, prefix = '', suffix = ''):
 
 function formatDecimal(val: number | undefined | null, decimals: number, prefix = '', suffix = ''): string {
   if (val === undefined || val === null || typeof val !== 'number') return 'N/A';
-  return `${prefix}${val.toFixed(decimals)}${suffix}`;
+  return `${prefix}${val.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}${suffix}`;
 }
 
 // ── DetailItem ────────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ function DetailSections({ details, geoLevel, showAggBadges, isAirportTract, near
           <DetailItem label="Rideshare Per Capita" value={formatDecimal(details.ridesharePerCapita / 2, 1)} aggregation={agg('ridesharePerCapita')} />
         )}
         {shouldShow('rideshareDensity', geoLevel) && details.rideshareDensity !== undefined && (
-          <DetailItem label="Rideshare Density" value={formatDecimal(details.rideshareDensity / 2, 0)} aggregation={agg('rideshareDensity')} />
+          <DetailItem label="Rideshare Density" value={formatDecimal(details.rideshareDensity / 2, 0, '', ' trips/sq mi')} aggregation={agg('rideshareDensity')} />
         )}
         {shouldShow('avTestingCount', geoLevel) && details.avTestingCount !== undefined && (
           <DetailItem label="AV Testing ODDs" value={formatNumber(details.avTestingCount)} icon={Car} />
