@@ -15,8 +15,7 @@ nixPkgs = [
 [phases.install]
 cmds = [
   "python3 -m venv /opt/venv",
-  "source /opt/venv/bin/activate",
-  "pip install --only-binary=:all: -r requirements-prod.txt",
+  "/opt/venv/bin/pip install --only-binary=:all: -r requirements-prod.txt",
   "npm install"
 ]
 
@@ -24,4 +23,4 @@ cmds = [
 cmds = ["npm run build"]
 
 [start]
-cmd = "source /opt/venv/bin/activate && uvicorn src.api.main:app --host 0.0.0.0 --port $PORT"
+cmd = "/opt/venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port $PORT"
