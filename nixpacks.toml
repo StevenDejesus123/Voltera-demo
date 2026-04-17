@@ -1,8 +1,6 @@
 # Railway deployment configuration
-# Builds the React frontend, then starts FastAPI which serves both the API and the built app.
-
-[phases.setup]
-nixPkgs = ["nodejs_20"]
+# Nixpacks auto-detects Node (package.json) and Python (requirements.txt).
+# We only override install/build/start to wire them together correctly.
 
 [phases.install]
 cmds = [
