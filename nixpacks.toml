@@ -10,7 +10,7 @@ nixPkgs = [
   "zlib",
   "libffi",
   "openssl",
-  "libstdcxx"
+  "stdenv.cc.cc.lib"
 ]
 
 [phases.install]
