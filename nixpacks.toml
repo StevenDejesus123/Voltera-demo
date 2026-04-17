@@ -1,10 +1,13 @@
 # Railway deployment configuration
-# Nixpacks auto-detects Node (package.json) and Python (requirements.txt).
-# We only override install/build/start to wire them together correctly.
+# Explicitly install both Node and Python since nixpacks prioritises Node
+# when package.json is present and skips Python auto-detection.
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "python311"]
 
 [phases.install]
 cmds = [
-    "pip install -r requirements.txt",
+    "python3 -m pip install -r requirements.txt",
     "npm install"
 ]
 
