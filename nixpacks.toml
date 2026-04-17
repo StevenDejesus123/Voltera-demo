@@ -1,12 +1,10 @@
 # Railway deployment configuration
-# python311 from nixpkgs doesn't include pip — bootstrap it with ensurepip first.
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "python311"]
+nixPkgs = ["nodejs_20", "python311", "python311Packages.pip"]
 
 [phases.install]
 cmds = [
-    "python3 -m ensurepip --upgrade",
     "python3 -m pip install -r requirements.txt",
     "npm install"
 ]
