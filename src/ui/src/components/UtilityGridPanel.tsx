@@ -335,7 +335,7 @@ export function UtilityGridPanel({
         {/* Circuit Min Capacity Slider */}
         <section>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Min. Circuit Capacity</p>
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Min. Circuit Load Availability</p>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-gray-400">≥</span>
               <input

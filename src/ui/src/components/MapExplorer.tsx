@@ -3,8 +3,10 @@ import { FilterPanel } from './FilterPanel';
 import { GeoPanel } from './GeoPanel';
 import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds } from './UtilityGridPanel';
 import type { SubstationFilters } from './UtilityGridPanel';
-import { loadOverrides, applyOverrides, saveOverride, removeOverride, exportOverridesJson } from '../utils/substationOverrides';
+import { loadOverrides, fetchOverrides, applyOverrides } from '../utils/substationOverrides';
 import type { OverrideMap } from '../utils/substationOverrides';
+import { loadCircuitOverrides, fetchCircuitOverrides, applyCircuitOverrides } from '../utils/circuitOverrides';
+import type { CircuitOverrideMap } from '../utils/circuitOverrides';
 import type { CircuitFeature, SelectedFeeder, CircuitColorMode } from './CircuitMapLayer';
 import { ExplainabilityPanel } from './ExplainabilityPanel';
 import { SavedViewsPanel } from './SavedViewsPanel';
@@ -12,6 +14,7 @@ import { TimelineSlider } from './TimelineSlider';
 import { CompetitorTrackerPanel } from './CompetitorTrackerPanel';
 import { SubstationOverridePanel } from './SubstationOverridePanel';
 import { SubstationOverrideListPanel } from './SubstationOverrideListPanel';
+import { CircuitOverridePanel } from './CircuitOverridePanel';
 import { GeoLevel, Segment, Region, RegionDetails, WhatIfScenario, MapViewState, SubstationFeature } from '../types';
 import { getMockRegions, getCountiesForMSA, getTractsForCounties, loadLevelOnDemand, loadDetailsOnDemand, loadTractDetailsForCounty, loadTractRegionsForCounty, getRegionDetails } from '../dataLoader/frontendLoader';
 import { loadPolygonsOnDemand, loadTractPolygonsForCounty } from '../dataLoader/geoPolygons';
@@ -141,10 +144,19 @@ export function MapExplorer() {
   const [showAllSubstations, setShowAllSubstations] = useState(false);
   const [substationFilters, setSubstationFilters] = useState<SubstationFilters>(defaultSubstationFilters());
 
-  // Voltera override layer — persisted in localStorage
+  // Substation overrides — loaded from DB on mount, falls back to localStorage
   const [substationOverrides, setSubstationOverrides] = useState<OverrideMap>(() => loadOverrides());
   const [editingSubstationId, setEditingSubstationId] = useState<string | null>(null);
   const [showOverrideList, setShowOverrideList] = useState(false);
+
+  // Circuit overrides — loaded from DB on mount, falls back to localStorage
+  const [circuitOverrides, setCircuitOverrides] = useState<CircuitOverrideMap>(() => loadCircuitOverrides());
+
+  // Load both override sets from DB on mount
+  useEffect(() => {
+    fetchOverrides().then(setSubstationOverrides).catch(() => {});
+    fetchCircuitOverrides().then(setCircuitOverrides).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch('/data/exports/substations.json')
@@ -168,6 +180,7 @@ export function MapExplorer() {
 
   // Circuits near the selected tract only — filtered from the county data by bounding box.
   // ±0.18° ≈ 20 km captures the full surrounding grid context for a selected tract.
+  // Circuit overrides are applied on top so map colours + tooltips reflect corrected values.
   const allCircuits = useMemo<CircuitFeature[]>(() => {
     const countyId = (selectedTract as any)?.countyID as string | undefined;
     if (!countyId || !selectedTract) return [];
@@ -175,20 +188,21 @@ export function MapExplorer() {
     if (!county) return [];
 
     const { lat, lng } = selectedTract;
-    if (lat == null || lng == null) return county; // no centroid — show all
+    if (lat == null || lng == null) return applyCircuitOverrides(county, circuitOverrides);
 
     const D = 0.18; // ~20 km bounding box half-width
     const minLat = lat - D, maxLat = lat + D;
     const minLng = lng - D, maxLng = lng + D;
 
-    return county.filter(c =>
+    const nearby = county.filter(c =>
       c.coords.some(line =>
         line.some(([cLng, cLat]) =>
           cLat >= minLat && cLat <= maxLat && cLng >= minLng && cLng <= maxLng
         )
       )
     );
-  }, [selectedTract, circuitsByCounty]);
+    return applyCircuitOverrides(nearby, circuitOverrides);
+  }, [selectedTract, circuitsByCounty, circuitOverrides]);
 
   // Clear substation highlight when the selected tract changes
   useEffect(() => { setHighlightedSubstationId(null); }, [selectedTract?.id]);
@@ -295,17 +309,20 @@ export function MapExplorer() {
 
   // Derive nearby substations for the currently selected tract from its loaded details.
   // Depends on selectedRegionDetails so it re-runs after the county chunk finishes loading.
+  // Overrides are applied on top so map pins + tooltips reflect the corrected values.
   const nearbySubstations = useMemo<SubstationFeature[]>(() => {
     const region = selectedTract;
     if (!region) return [];
     const d = getRegionDetails(region.id, region.geoLevel);
     const nearby = d?.details?.nearbySubstations;
-    if (Array.isArray(nearby) && nearby.length > 0) return nearby as SubstationFeature[];
-    // Fallback: haversine filter on allSubstations if details not yet loaded
+    if (Array.isArray(nearby) && nearby.length > 0) {
+      return applyOverrides(nearby as SubstationFeature[], substationOverrides);
+    }
+    // Fallback: haversine filter on allSubstationsWithOverrides so overrides are already applied
     if (allSubstations.length === 0 || !region.lat || !region.lng) return [];
     const R = 6371000;
     const toRad = (deg: number) => (deg * Math.PI) / 180;
-    return allSubstations
+    return allSubstationsWithOverrides
       .map(s => {
         const dLat = toRad(s.lat - region.lat);
         const dLng = toRad(s.lng - region.lng);
@@ -315,7 +332,7 @@ export function MapExplorer() {
       })
       .filter(s => s.distM! <= 50000)
       .sort((a, b) => (a.distM ?? 0) - (b.distM ?? 0));
-  }, [selectedTract, selectedRegionDetails, allSubstations]);
+  }, [selectedTract, selectedRegionDetails, allSubstations, allSubstationsWithOverrides, substationOverrides]);
 
   // Set of nearby substation IDs for the map layer to pulse-highlight
   const nearbySubstationIds = useMemo(
@@ -1076,9 +1093,15 @@ export function MapExplorer() {
             showCompetitorLayer={showCompetitorLayer}
             circuits={showSubstationLayer ? filteredCircuits : []}
             selectedFeeder={selectedFeeder}
-            onFeederClick={f => setSelectedFeeder(prev =>
-              prev?.utility === f.utility && prev?.circuitName === f.circuitName ? null : f
-            )}
+            onFeederClick={f => {
+              const isSame = selectedFeeder?.utility === f.utility && selectedFeeder?.circuitName === f.circuitName;
+              setSelectedFeeder(isSame ? null : f);
+              if (!isSame) {
+                // Opening a circuit panel — close substation panel
+                setEditingSubstationId(null);
+                setShowOverrideList(false);
+              }
+            }}
             circuitColorMode={circuitColorMode}
             substations={visibleSubstations}
             nearbySubstationIds={nearbySubstationIds}
@@ -1086,38 +1109,24 @@ export function MapExplorer() {
             highlightedSubstationId={highlightedSubstationId}
             onClickSubstation={s => {
               setHighlightedSubstationId(prev => prev === s.id ? null : s.id);
-              setEditingSubstationId(prev => prev === s.id ? null : s.id);
+              const nextId = editingSubstationId === s.id ? null : s.id;
+              setEditingSubstationId(nextId);
+              if (nextId) setSelectedFeeder(null); // opening substation panel — close circuit panel
             }}
           />
 
-          {/* Selected feeder banner — appears when a circuit/feeder is clicked */}
+          {/* Circuit selected — thin status chip so user knows something is active */}
           {selectedFeeder && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-3
-                            bg-gray-900/95 text-white text-xs px-4 py-2.5 rounded-full shadow-xl
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-2
+                            bg-gray-900/90 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg
                             border border-white/10 backdrop-blur-sm pointer-events-auto">
-              <span className="font-semibold">
+              <span className="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0" />
+              <span className="font-medium truncate max-w-[220px]">
                 {selectedFeeder.circuitName || 'Unnamed Circuit'}
               </span>
-              <span className="text-gray-400">
-                {selectedFeeder.utility.toUpperCase()}
-                {selectedFeeder.substationName ? ` · ${selectedFeeder.substationName}` : ''}
-              </span>
-              {selectedFeeder.loadAvailKw != null && (
-                <span
-                  className="font-semibold"
-                  style={{ color: selectedFeeder.loadAvailKw <= 0 ? '#ef4444'
-                    : selectedFeeder.loadAvailKw < 1000 ? '#f97316'
-                    : selectedFeeder.loadAvailKw < 5000 ? '#eab308'
-                    : '#22c55e' }}
-                >
-                  {selectedFeeder.loadAvailKw >= 1000
-                    ? `${(selectedFeeder.loadAvailKw / 1000).toFixed(1)} MW`
-                    : `${Math.round(selectedFeeder.loadAvailKw)} kW`}
-                </span>
-              )}
               <button
                 onClick={() => setSelectedFeeder(null)}
-                className="ml-1 text-gray-400 hover:text-white leading-none"
+                className="text-gray-400 hover:text-white leading-none ml-1"
                 title="Deselect feeder"
               >✕</button>
             </div>
@@ -1150,6 +1159,30 @@ export function MapExplorer() {
             onOverridesChange={setSubstationOverrides}
             onEdit={id => { setEditingSubstationId(id); setShowOverrideList(false); }}
             onClose={() => setShowOverrideList(false)}
+          />
+        )}
+
+        {/* Circuit override panel — shown when a feeder is selected */}
+        {selectedFeeder && (
+          <CircuitOverridePanel
+            feeder={selectedFeeder}
+            overrides={circuitOverrides}
+            onOverridesChange={ovs => {
+              setCircuitOverrides(ovs);
+              // Sync updated values back into the selectedFeeder so the panel
+              // header and source-data row stay current without a re-click
+              const key = `${selectedFeeder.utility}::${selectedFeeder.circuitName}`;
+              const ov = ovs[key];
+              if (ov) {
+                setSelectedFeeder(prev => prev ? {
+                  ...prev,
+                  loadAvailKw: ov.loadAvailKw !== undefined ? ov.loadAvailKw : prev.loadAvailKw,
+                  pvHostingKw: ov.pvHostingKw !== undefined ? ov.pvHostingKw : prev.pvHostingKw,
+                  voltageKv:   ov.voltageKv   !== undefined ? ov.voltageKv   : prev.voltageKv,
+                } : null);
+              }
+            }}
+            onClose={() => setSelectedFeeder(null)}
           />
         )}
       </div>

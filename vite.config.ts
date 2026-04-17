@@ -3,12 +3,23 @@ import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
+import type { ServerResponse } from 'http';
 
 // Resolve python binary: prefer venv, fall back to python3/python
 const PYTHON = fs.existsSync(path.join(__dirname, 'venv/bin/python'))
   ? path.join(__dirname, 'venv/bin/python')
   : 'python3';
+
+function sendJson(res: ServerResponse, statusCode: number, payload: Record<string, unknown>): void {
+  res.setHeader('Content-Type', 'application/json');
+  res.statusCode = statusCode;
+  res.end(JSON.stringify(payload));
+}
+
+function formatError(err: any): string {
+  return err.stderr?.toString().slice(0, 500) || err.message;
+}
 
 export default defineConfig({
   plugins: [
@@ -21,7 +32,6 @@ export default defineConfig({
         server.middlewares.use('/api/salesforce/refresh', (req, res, next) => {
           if (req.method !== 'POST') return next();
 
-          res.setHeader('Content-Type', 'application/json');
           const start = Date.now();
           const elapsed = () => `${((Date.now() - start) / 1000).toFixed(1)}s`;
 
@@ -36,23 +46,68 @@ export default defineConfig({
               timeout: 60_000,
               stdio: 'pipe',
             });
-            res.statusCode = 200;
-            res.end(JSON.stringify({ status: 'ok', duration: elapsed() }));
+            sendJson(res, 200, { status: 'ok', duration: elapsed() });
           } catch (err: any) {
-            res.statusCode = 500;
-            res.end(JSON.stringify({
-              status: 'error',
-              duration: elapsed(),
-              message: err.stderr?.toString().slice(0, 500) || err.message,
-            }));
+            sendJson(res, 500, { status: 'error', duration: elapsed(), message: formatError(err) });
           }
         });
 
-        // Serve static JSON exports
+        // POST /api/export/shapefile — generate shapefile ZIP via Python backend
+        server.middlewares.use('/api/export/shapefile', (req, res, next) => {
+          if (req.method !== 'POST') return next();
+
+          let body = '';
+          req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          req.on('end', () => {
+            const start = Date.now();
+            const elapsed = () => `${((Date.now() - start) / 1000).toFixed(1)}s`;
+
+            try {
+              const { geography, regionIds } = JSON.parse(body || '{}');
+              const geo = (geography || 'county').toLowerCase();
+              if (!['msa', 'county', 'tract'].includes(geo)) {
+                sendJson(res, 400, { status: 'error', message: `Invalid geography: ${geo}` });
+                return;
+              }
+
+              const args = ['-m', 'src.cli.export_cli', '-g', geo, '-f', 'shapefile', '-y'];
+              if (Array.isArray(regionIds) && regionIds.length > 0) {
+                args.push('-r', regionIds.join(','));
+              }
+
+              execFileSync(PYTHON, args, { cwd: __dirname, timeout: 300_000, stdio: 'pipe' });
+
+              const zipName = `rankings_${geo}_shapefile.zip`;
+              const zipPath = path.join(__dirname, 'data/exports', zipName);
+
+              if (fs.existsSync(zipPath)) {
+                sendJson(res, 200, { status: 'ok', duration: elapsed(), file: `/data/exports/${zipName}` });
+              } else {
+                sendJson(res, 500, { status: 'error', duration: elapsed(), message: 'Shapefile ZIP not found after export' });
+              }
+            } catch (err: any) {
+              sendJson(res, 500, { status: 'error', duration: elapsed(), message: formatError(err) });
+            }
+          });
+        });
+
+        // Serve static data exports (JSON, GeoJSON, CSV)
         server.middlewares.use('/data/exports', (req, res, next) => {
-          const filePath = path.join(__dirname, 'data/exports', req.url || '');
+          const exportsRoot = path.join(__dirname, 'data/exports');
+          const filePath = path.resolve(exportsRoot, (req.url || '').replace(/^\/+/, ''));
+          if (!filePath.startsWith(exportsRoot + path.sep) && filePath !== exportsRoot) {
+            res.statusCode = 403;
+            res.end('Forbidden');
+            return;
+          }
           if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-            res.setHeader('Content-Type', 'application/json');
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType =
+              ext === '.csv'  ? 'text/csv; charset=utf-8' :
+              ext === '.geojson' ? 'application/geo+json' :
+              ext === '.zip' ? 'application/zip' :
+              'application/json';
+            res.setHeader('Content-Type', contentType);
             fs.createReadStream(filePath).pipe(res);
           } else {
             next();
@@ -112,5 +167,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    proxy: {
+      // Route substation + override API calls to FastAPI on port 8000.
+      // Start FastAPI with: uvicorn src.api.main:app --reload --port 8000
+      '/api/substations': 'http://localhost:8000',
+      '/api/overrides':   'http://localhost:8000',
+      '/api/health':      'http://localhost:8000',
+    },
   },
 });

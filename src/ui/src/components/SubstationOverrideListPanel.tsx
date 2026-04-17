@@ -32,6 +32,7 @@ export function SubstationOverrideListPanel({
   onClose,
 }: SubstationOverrideListPanelProps) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const overriddenIds = Object.keys(overrides);
 
@@ -42,11 +43,16 @@ export function SubstationOverrideListPanel({
     raw: allSubstations.find(s => s.id === id) ?? null,
   }));
 
-  function handleRemove(id: string) {
+  async function handleRemove(id: string) {
     if (confirmId !== id) { setConfirmId(id); return; }
-    const next = removeOverride(id);
-    onOverridesChange(next);
-    setConfirmId(null);
+    setRemovingId(id);
+    try {
+      const next = await removeOverride(id);
+      onOverridesChange(next);
+      setConfirmId(null);
+    } finally {
+      setRemovingId(null);
+    }
   }
 
   return (
@@ -119,8 +125,9 @@ export function SubstationOverrideListPanel({
                     </button>
                     <button
                       onClick={() => handleRemove(id)}
+                      disabled={removingId === id}
                       title={confirmId === id ? 'Click again to confirm' : 'Remove override'}
-                      className={`p-1.5 rounded-md transition-colors ${
+                      className={`p-1.5 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                         confirmId === id
                           ? 'bg-red-100 text-red-600 hover:bg-red-200'
                           : 'text-gray-400 hover:bg-red-50 hover:text-red-500'
@@ -185,9 +192,10 @@ export function SubstationOverrideListPanel({
                       </button>
                       <button
                         onClick={() => handleRemove(id)}
-                        className="text-[11px] bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700"
+                        disabled={removingId === id}
+                        className="text-[11px] bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700 disabled:opacity-40"
                       >
-                        Remove
+                        {removingId === id ? 'Removing…' : 'Remove'}
                       </button>
                     </div>
                   </div>
@@ -201,7 +209,7 @@ export function SubstationOverrideListPanel({
       {/* Footer */}
       <div className="px-4 py-2.5 border-t border-gray-100 flex-shrink-0">
         <button
-          onClick={exportOverridesJson}
+          onClick={() => exportOverridesJson(overrides)}
           disabled={overriddenIds.length === 0}
           className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-1.5 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >

@@ -1,68 +1,86 @@
 import { useState, useEffect } from 'react';
-import { X, Download, Trash2, Save, AlertTriangle } from 'lucide-react';
-import type { SubstationFeature } from '../types';
+import { X, Download, Trash2, Save, AlertTriangle, Zap } from 'lucide-react';
+import type { SelectedFeeder } from './CircuitMapLayer';
 import {
-  saveOverride, removeOverride, exportOverridesJson,
-} from '../utils/substationOverrides';
-import type { OverrideMap, SubstationOverride } from '../utils/substationOverrides';
+  saveCircuitOverride, removeCircuitOverride, exportCircuitOverridesJson,
+  circuitOverrideKey,
+} from '../utils/circuitOverrides';
+import type { CircuitOverrideMap, CircuitOverride } from '../utils/circuitOverrides';
 
-interface SubstationOverridePanelProps {
-  substation: SubstationFeature;   // raw (pre-override) source data
-  overrides: OverrideMap;
-  onOverridesChange: (next: OverrideMap) => void;
+interface CircuitOverridePanelProps {
+  feeder: SelectedFeeder;
+  overrides: CircuitOverrideMap;
+  onOverridesChange: (next: CircuitOverrideMap) => void;
   onClose: () => void;
-  onViewAll?: () => void;
 }
 
-function voltageLabel(kv: number | null): string {
-  if (kv == null) return 'Unknown';
-  if (kv <= 33)  return `${kv} kV (Distribution)`;
-  if (kv <= 115) return `${kv} kV (Sub-transmission)`;
-  return `${kv} kV (Transmission)`;
+function loadLabel(kw: number | null): string {
+  if (kw == null) return 'N/A';
+  if (kw >= 1000) return `${(kw / 1000).toFixed(1)} MW`;
+  return `${Math.round(kw)} kW`;
 }
 
-export function SubstationOverridePanel({
-  substation,
+function loadColor(kw: number | null): string {
+  if (kw == null || kw <= 0) return '#ef4444';
+  if (kw < 1000)             return '#f97316';
+  if (kw < 5000)             return '#eab308';
+  return '#22c55e';
+}
+
+const UTILITY_BADGE: Record<string, string> = {
+  sce:   'bg-amber-100 text-amber-700',
+  pge:   'bg-blue-100 text-blue-700',
+  ladwp: 'bg-emerald-100 text-emerald-700',
+  sdge:  'bg-violet-100 text-violet-700',
+};
+
+export function CircuitOverridePanel({
+  feeder,
   overrides,
   onOverridesChange,
   onClose,
-  onViewAll,
-}: SubstationOverridePanelProps) {
-  const existing = overrides[substation.id];
+}: CircuitOverridePanelProps) {
+  const key = circuitOverrideKey(feeder.utility, feeder.circuitName);
+  const existing = overrides[key];
 
-  const [capacityMw, setCapacityMw]   = useState<string>(existing?.capacityMw != null ? String(existing.capacityMw) : '');
-  const [voltageKv,  setVoltageKv]    = useState<string>(existing?.voltageKv  != null ? String(existing.voltageKv)  : '');
-  const [notes,      setNotes]        = useState<string>(existing?.notes        ?? '');
+  const [loadAvailKw, setLoadAvailKw] = useState<string>(existing?.loadAvailKw != null ? String(existing.loadAvailKw) : '');
+  const [pvHostingKw, setPvHostingKw] = useState<string>(existing?.pvHostingKw != null ? String(existing.pvHostingKw) : '');
+  const [voltageKv,   setVoltageKv]   = useState<string>(existing?.voltageKv   != null ? String(existing.voltageKv)   : '');
+  const [notes,       setNotes]       = useState<string>(existing?.notes        ?? '');
   const [lastVerified, setLastVerified] = useState<string>(existing?.lastVerified ?? '');
-  const [updatedBy,  setUpdatedBy]    = useState<string>(existing?.updatedBy    ?? '');
-  const [dirty, setDirty] = useState(false);
+  const [updatedBy,   setUpdatedBy]   = useState<string>(existing?.updatedBy    ?? '');
+  const [dirty,  setDirty]  = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Reset form when switching to a different substation
+  // Reset form when switching to a different feeder
   useEffect(() => {
-    const ov = overrides[substation.id];
-    setCapacityMw(ov?.capacityMw != null ? String(ov.capacityMw) : '');
-    setVoltageKv(ov?.voltageKv   != null ? String(ov.voltageKv)  : '');
+    const ov = overrides[circuitOverrideKey(feeder.utility, feeder.circuitName)];
+    setLoadAvailKw(ov?.loadAvailKw != null ? String(ov.loadAvailKw) : '');
+    setPvHostingKw(ov?.pvHostingKw != null ? String(ov.pvHostingKw) : '');
+    setVoltageKv(ov?.voltageKv     != null ? String(ov.voltageKv)   : '');
     setNotes(ov?.notes        ?? '');
     setLastVerified(ov?.lastVerified ?? '');
     setUpdatedBy(ov?.updatedBy  ?? '');
     setDirty(false);
-  }, [substation.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feeder.utility, feeder.circuitName]);
 
   function markDirty() { setDirty(true); }
 
   async function handleSave() {
     setSaving(true);
     try {
-      const override: SubstationOverride = {};
-      const cap = parseFloat(capacityMw);
+      const override: CircuitOverride = {};
+      const kw  = parseFloat(loadAvailKw);
+      const pv  = parseFloat(pvHostingKw);
       const kv  = parseFloat(voltageKv);
-      if (!isNaN(cap)) override.capacityMw = cap;
-      if (!isNaN(kv))  override.voltageKv  = kv;
+      if (!isNaN(kw))  override.loadAvailKw = kw;
+      if (!isNaN(pv))  override.pvHostingKw = pv;
+      if (!isNaN(kv))  override.voltageKv   = kv;
       if (notes.trim())        override.notes       = notes.trim();
       if (lastVerified.trim()) override.lastVerified = lastVerified.trim();
       if (updatedBy.trim())    override.updatedBy   = updatedBy.trim();
-      const next = await saveOverride(substation.id, override);
+      const next = await saveCircuitOverride(feeder.utility, feeder.circuitName, override);
       onOverridesChange(next);
       setDirty(false);
     } finally {
@@ -73,22 +91,19 @@ export function SubstationOverridePanel({
   async function handleRemove() {
     setSaving(true);
     try {
-      const next = await removeOverride(substation.id);
+      const next = await removeCircuitOverride(feeder.utility, feeder.circuitName);
       onOverridesChange(next);
-      setCapacityMw(''); setVoltageKv(''); setNotes('');
-      setLastVerified(''); setUpdatedBy('');
+      setLoadAvailKw(''); setPvHostingKw(''); setVoltageKv('');
+      setNotes(''); setLastVerified(''); setUpdatedBy('');
       setDirty(false);
     } finally {
       setSaving(false);
     }
   }
 
-  function handleExport() {
-    exportOverridesJson(overrides);
-  }
-
   const hasExisting = !!existing;
-  const overrideCount = Object.keys(overrides).length;
+  const badgeClass  = UTILITY_BADGE[feeder.utility] ?? 'bg-gray-100 text-gray-600';
+  const srcColor    = loadColor(feeder.loadAvailKw);
 
   return (
     <div className="absolute bottom-6 right-6 w-80 bg-white rounded-xl shadow-2xl border border-indigo-200 z-[9999] flex flex-col overflow-hidden">
@@ -96,10 +111,19 @@ export function SubstationOverridePanel({
       <div className="bg-indigo-600 text-white px-4 py-3 flex items-start justify-between gap-2 flex-shrink-0">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold bg-white text-indigo-600 rounded px-1.5 py-0.5 flex-shrink-0">V</span>
-            <p className="font-semibold text-sm truncate">{substation.name || 'Unnamed Substation'}</p>
+            <Zap className="w-3.5 h-3.5 flex-shrink-0 opacity-80" />
+            <p className="font-semibold text-sm truncate">
+              {feeder.circuitName || 'Unnamed Circuit'}
+            </p>
           </div>
-          <p className="text-indigo-200 text-[11px] uppercase tracking-wide mt-0.5">{substation.utility || 'Unknown utility'}</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${badgeClass}`}>
+              {feeder.utility}
+            </span>
+            {feeder.substationName && (
+              <span className="text-indigo-200 text-[11px] truncate">{feeder.substationName}</span>
+            )}
+          </div>
         </div>
         <button onClick={onClose} className="p-1 rounded hover:bg-indigo-500 transition-colors flex-shrink-0 mt-0.5">
           <X className="w-4 h-4" />
@@ -109,13 +133,20 @@ export function SubstationOverridePanel({
       {/* Source data (read-only) */}
       <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex-shrink-0">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Source data (read-only)</p>
-        <div className="flex gap-4 text-[11px] text-gray-600">
-          <span>Load Avail: <span className="font-medium text-gray-800">
-            {substation.capacityMw != null ? `${substation.capacityMw.toFixed(1)} MW` : 'N/A'}
+        <div className="flex gap-4 text-[11px] text-gray-600 flex-wrap">
+          <span>Load Avail: <span className="font-medium" style={{ color: srcColor }}>
+            {loadLabel(feeder.loadAvailKw)}
           </span></span>
-          <span>Voltage: <span className="font-medium text-gray-800">
-            {voltageLabel(substation.voltageKv)}
-          </span></span>
+          {feeder.pvHostingKw != null && (
+            <span>PV Hosting: <span className="font-medium text-gray-800">
+              {loadLabel(feeder.pvHostingKw)}
+            </span></span>
+          )}
+          {feeder.voltageKv != null && (
+            <span>Voltage: <span className="font-medium text-gray-800">
+              {feeder.voltageKv} kV
+            </span></span>
+          )}
         </div>
       </div>
 
@@ -131,32 +162,45 @@ export function SubstationOverridePanel({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-[11px] font-medium text-gray-600 mb-1">
-              Load Availability (MW)
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              placeholder={substation.capacityMw != null ? `${substation.capacityMw.toFixed(1)}` : 'e.g. 8.5'}
-              value={capacityMw}
-              onChange={e => { setCapacityMw(e.target.value); markDirty(); }}
-              className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-1">
-              Voltage (kV)
+              Load Availability (kW)
             </label>
             <input
               type="number"
               step="1"
               min="0"
-              placeholder={substation.voltageKv != null ? `${substation.voltageKv}` : 'e.g. 12'}
-              value={voltageKv}
-              onChange={e => { setVoltageKv(e.target.value); markDirty(); }}
+              placeholder={feeder.loadAvailKw != null ? `${Math.round(feeder.loadAvailKw)}` : 'e.g. 3500'}
+              value={loadAvailKw}
+              onChange={e => { setLoadAvailKw(e.target.value); markDirty(); }}
               className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
           </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">
+              PV Hosting (kW)
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              placeholder={feeder.pvHostingKw != null ? `${Math.round(feeder.pvHostingKw)}` : 'e.g. 1200'}
+              value={pvHostingKw}
+              onChange={e => { setPvHostingKw(e.target.value); markDirty(); }}
+              className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-medium text-gray-600 mb-1">Voltage (kV)</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            placeholder={feeder.voltageKv != null ? `${feeder.voltageKv}` : 'e.g. 12'}
+            value={voltageKv}
+            onChange={e => { setVoltageKv(e.target.value); markDirty(); }}
+            className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
         </div>
 
         <div>
@@ -193,7 +237,7 @@ export function SubstationOverridePanel({
         </div>
       </div>
 
-      {/* Footer actions */}
+      {/* Footer */}
       <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0 space-y-2">
         <div className="flex gap-2">
           <button
@@ -215,24 +259,13 @@ export function SubstationOverridePanel({
             </button>
           )}
         </div>
-
-        <div className="flex gap-2">
-          {onViewAll && (
-            <button
-              onClick={onViewAll}
-              className="flex-1 flex items-center justify-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 py-1.5 hover:bg-indigo-50 rounded-lg transition-colors font-medium"
-            >
-              View all ({overrideCount})
-            </button>
-          )}
-          <button
-            onClick={handleExport}
-            className="flex-1 flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-1.5 hover:bg-gray-50 rounded-lg transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export
-          </button>
-        </div>
+        <button
+          onClick={() => exportCircuitOverridesJson(overrides)}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 py-1.5 hover:bg-gray-50 rounded-lg transition-colors"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export circuit overrides
+        </button>
       </div>
     </div>
   );

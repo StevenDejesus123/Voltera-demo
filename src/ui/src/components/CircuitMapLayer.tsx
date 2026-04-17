@@ -7,6 +7,8 @@ export interface SelectedFeeder {
   circuitName: string;
   substationName: string;
   loadAvailKw: number | null;
+  voltageKv: number | null;
+  pvHostingKw: number | null;
 }
 
 export interface CircuitFeature {
@@ -18,6 +20,9 @@ export interface CircuitFeature {
   loadAvailKw: number | null;
   pvHostingKw: number | null;
   coords: number[][][];   // array of lines, each line is [[lng, lat], ...]
+  hasOverride?: boolean;
+  overrideNotes?: string;
+  overrideLastVerified?: string;
 }
 
 export type CircuitColorMode = 'capacity' | 'voltage';
@@ -71,6 +76,12 @@ function tooltipHtml(c: CircuitFeature, mode: CircuitColorMode): string {
         <span style="color:#f97316">━</span> &lt;1 MW &nbsp;
         <span style="color:#ef4444">━</span> None
       </div>`;
+  const overrideNote = c.hasOverride
+    ? `<p style="color:#4f46e5;font-size:10px;margin:4px 0 0;padding-top:4px;border-top:1px solid #e0e7ff">
+        <strong style="color:#4f46e5">V</strong> Voltera override${c.overrideLastVerified ? ` · verified ${c.overrideLastVerified}` : ''}
+        ${c.overrideNotes ? `<br><em>${c.overrideNotes}</em>` : ''}
+       </p>`
+    : '';
   return `
     <div style="font-size:11px;line-height:1.5;min-width:180px">
       <p style="font-weight:600;color:#1f2937;margin:0 0 1px">${blank(c.circuitName) ? 'Unnamed Circuit' : c.circuitName}</p>
@@ -83,7 +94,8 @@ function tooltipHtml(c: CircuitFeature, mode: CircuitColorMode): string {
       ${c.voltageKv != null ? `<p style="color:#4b5563;margin:0">Voltage: <span style="font-weight:500">${c.voltageKv} kV</span></p>` : ''}
       ${c.pvHostingKw != null ? `<p style="color:#4b5563;margin:0">PV Hosting: <span style="font-weight:500">${loadLabel(c.pvHostingKw)}</span></p>` : ''}
       ${legend}
-      <p style="margin:4px 0 0;font-size:10px;color:#9ca3af;font-style:italic">Click to highlight full feeder</p>
+      ${overrideNote}
+      <p style="margin:4px 0 0;font-size:10px;color:#9ca3af;font-style:italic">Click to select feeder</p>
     </div>`;
 }
 
@@ -171,10 +183,12 @@ export function CircuitMapLayer({
         poly.on('click', (e) => {
           L.DomEvent.stopPropagation(e);
           onFeederClick?.({
-            utility: c.utility,
-            circuitName: c.circuitName,
+            utility:       c.utility,
+            circuitName:   c.circuitName,
             substationName: c.substationName,
-            loadAvailKw: c.loadAvailKw,
+            loadAvailKw:   c.loadAvailKw,
+            voltageKv:     c.voltageKv,
+            pvHostingKw:   c.pvHostingKw,
           });
         });
 
