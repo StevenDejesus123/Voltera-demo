@@ -1,12 +1,12 @@
 # Railway deployment configuration
-# Explicitly install both Node and Python since nixpacks prioritises Node
-# when package.json is present and skips Python auto-detection.
+# python311 from nixpkgs doesn't include pip — bootstrap it with ensurepip first.
 
 [phases.setup]
 nixPkgs = ["nodejs_20", "python311"]
 
 [phases.install]
 cmds = [
+    "python3 -m ensurepip --upgrade",
     "python3 -m pip install -r requirements.txt",
     "npm install"
 ]
