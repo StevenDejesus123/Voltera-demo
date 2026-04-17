@@ -24,4 +24,4 @@ cmds = [
 cmds = ["npm run build"]
 
 [start]
-cmd = "/opt/venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port $PORT"
+cmd = "export LD_LIBRARY_PATH=$(dirname $(find /nix/store -name libstdc++.so.6 | head -n 1)):$LD_LIBRARY_PATH && /opt/venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port $PORT"
