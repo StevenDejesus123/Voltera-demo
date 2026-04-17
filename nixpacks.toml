@@ -14,9 +14,8 @@ nixPkgs = [
 
 [phases.install]
 cmds = [
-    "pip install --upgrade pip",
-    "pip install --only-binary=:all: -r requirements-prod.txt",
-    "npm install"
+  "pip install --only-binary=:all: -r requirements-prod.txt",
+  "npm install"
 ]
 
 [phases.build]
