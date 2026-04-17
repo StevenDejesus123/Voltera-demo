@@ -1,11 +1,21 @@
 # Railway deployment configuration
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "python311", "python311Packages.pip"]
+nixPkgs = [
+  "nodejs_20",
+  "python311",
+  "python311Packages.pip",
+  "gcc",
+  "glibc",
+  "zlib",
+  "libffi",
+  "openssl"
+]
 
 [phases.install]
 cmds = [
-    "pip install -r requirements-prod.txt",
+    "pip install --upgrade pip",
+    "pip install --only-binary=:all: -r requirements-prod.txt",
     "npm install"
 ]
 
