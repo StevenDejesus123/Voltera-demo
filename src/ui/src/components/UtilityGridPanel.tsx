@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, X, Zap } from 'lucide-react';
+import { Eye, EyeOff, X, Zap, ShieldCheck } from 'lucide-react';
 import type { SubstationFeature } from '../types';
 import type { CircuitFeature, CircuitColorMode } from './CircuitMapLayer';
 
@@ -102,10 +102,15 @@ function toggleSet<T>(set: Set<T>, value: T, all: T[]): Set<T> {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const UTILITIES: { id: string; label: string; color: string }[] = [
-  { id: 'sce',   label: 'SCE',   color: '#f59e0b' },
-  { id: 'pge',   label: 'PG&E',  color: '#3b82f6' },
-  { id: 'ladwp', label: 'LADWP', color: '#10b981' },
-  { id: 'sdge',  label: 'SDG&E', color: '#8b5cf6' },
+  { id: 'sce',         label: 'SCE',     color: '#f59e0b' },
+  { id: 'pge',         label: 'PG&E',    color: '#3b82f6' },
+  { id: 'ladwp',       label: 'LADWP',   color: '#10b981' },
+  { id: 'sdge',        label: 'SDG&E',   color: '#8b5cf6' },
+  { id: 'gpc',         label: 'GPC',     color: '#ec4899' },
+  { id: 'pepco',       label: 'Pepco',   color: '#06b6d4' },
+  { id: 'bge',         label: 'BGE',     color: '#f43f5e' },
+
+  { id: 'comed',       label: 'ComEd',   color: '#a855f7' },
 ];
 
 const CAPACITY_TIERS: { id: CapacityTier; label: string; range: string; color: string }[] = [
@@ -135,6 +140,11 @@ interface UtilityGridPanelProps {
   onToggleShowAll:         (v: boolean) => void;
   circuitColorMode?:       CircuitColorMode;
   onCircuitColorModeChange?: (mode: CircuitColorMode) => void;
+  // Override view props
+  substationOverrideCount: number;
+  circuitOverrideCount:    number;
+  showOverridesOnly:       boolean;
+  onToggleShowOverrides:   (v: boolean) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -151,6 +161,10 @@ export function UtilityGridPanel({
   onToggleShowAll,
   circuitColorMode = 'capacity',
   onCircuitColorModeChange,
+  substationOverrideCount,
+  circuitOverrideCount,
+  showOverridesOnly,
+  onToggleShowOverrides,
 }: UtilityGridPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [subDraft,  setSubDraft]  = useState('');
@@ -193,10 +207,17 @@ export function UtilityGridPanel({
   }
   function resetAll() {
     onFiltersChange(defaultSubstationFilters());
+    if (showOverridesOnly) onToggleShowOverrides(false);
   }
 
-  const activeCount = [filters.utilities.size, filters.capacityTiers.size, filters.voltageClasses.size]
-    .filter(n => n > 0).length + (filters.minCapacityMw > 0 ? 1 : 0) + (filters.minCircuitCapacityKw > 0 ? 1 : 0);
+  const activeCount =
+    [filters.utilities.size, filters.capacityTiers.size, filters.voltageClasses.size]
+      .filter(n => n > 0).length
+    + (filters.minCapacityMw > 0 ? 1 : 0)
+    + (filters.minCircuitCapacityKw > 0 ? 1 : 0)
+    + (showOverridesOnly ? 1 : 0);
+
+  const hasAnyActiveState = hasAnyFilter(filters) || showOverridesOnly;
 
   return (
     <div
@@ -205,14 +226,16 @@ export function UtilityGridPanel({
     >
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-yellow-500" />
+        <div className="flex items-center gap-2 min-w-0">
+          <Zap className="w-4 h-4 text-yellow-500 shrink-0" />
           <span className="text-sm font-semibold text-gray-800">Utility Grid</span>
-          <span className="text-xs text-gray-400">
-            {filteredCount > 0
-              ? `${filteredCount.toLocaleString()} highlighted`
-              : `${allSubstations.length.toLocaleString()} substations`}
-          </span>
+          {showOverridesOnly ? (
+            <span className="text-[10px] font-semibold bg-violet-100 text-violet-700 rounded px-1.5 py-0.5 shrink-0">OVERRIDES</span>
+          ) : filteredCount > 0 ? (
+            <span className="text-xs text-gray-400">{filteredCount.toLocaleString()} highlighted</span>
+          ) : (
+            <span className="text-xs text-gray-400">{allSubstations.length.toLocaleString()} substations</span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -235,7 +258,7 @@ export function UtilityGridPanel({
           <div>
             <p className="text-xs font-medium text-gray-700">Show all substations</p>
             <p className="text-[10px] text-gray-400 mt-0.5">
-              {showAll ? 'All CA substations visible' : 'Only nearby shown when tract selected'}
+              {showAll ? 'All substations visible' : 'Only nearby shown when tract selected'}
             </p>
           </div>
           <button
@@ -252,17 +275,80 @@ export function UtilityGridPanel({
 
         <div className="border-t border-gray-100" />
 
+        {/* Voltera Overrides */}
+        <section>
+          <div className="flex items-center gap-1.5 mb-3">
+            <ShieldCheck className="w-3.5 h-3.5 text-violet-500" />
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Voltera Overrides</p>
+            {(substationOverrideCount + circuitOverrideCount) > 0 && (
+              <span className="ml-auto text-[10px] font-semibold bg-violet-100 text-violet-700 rounded-full px-2 py-0.5">
+                {substationOverrideCount + circuitOverrideCount} total
+              </span>
+            )}
+          </div>
+
+          {/* Count breakdown */}
+          <div className="flex gap-2 mb-3">
+            <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+              <p className="text-[10px] text-gray-400">Substations</p>
+              <p className={`text-sm font-bold ${substationOverrideCount > 0 ? 'text-violet-700' : 'text-gray-300'}`}>
+                {substationOverrideCount}
+              </p>
+            </div>
+            <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+              <p className="text-[10px] text-gray-400">Circuits</p>
+              <p className={`text-sm font-bold ${circuitOverrideCount > 0 ? 'text-violet-700' : 'text-gray-300'}`}>
+                {circuitOverrideCount}
+              </p>
+            </div>
+          </div>
+
+          {/* Map view: All data vs Overrides only */}
+          <div className="mb-1">
+            <p className="text-[10px] text-gray-400 mb-1.5">Map view</p>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button
+                onClick={() => onToggleShowOverrides(false)}
+                className={`flex-1 py-1.5 font-medium transition-colors ${
+                  !showOverridesOnly
+                    ? 'bg-gray-700 text-white'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => onToggleShowOverrides(true)}
+                disabled={(substationOverrideCount + circuitOverrideCount) === 0}
+                className={`flex-1 py-1.5 font-medium transition-colors border-l border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  showOverridesOnly
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                Overrides Only
+              </button>
+            </div>
+            {showOverridesOnly && (
+              <p className="text-[10px] text-violet-600 mt-1">Showing only modified substations &amp; circuits</p>
+            )}
+          </div>
+
+        </section>
+
+        <div className="border-t border-gray-100" />
+
         {/* Utility */}
         <section>
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Utility</p>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             {UTILITIES.map(u => {
               const selected = filters.utilities.has(u.id);
               return (
                 <button
                   key={u.id}
                   onClick={() => setUtilities(u.id)}
-                  className={`flex-1 flex flex-col items-center py-2 px-3 rounded-lg border text-xs transition-all ${
+                  className={`flex flex-col items-center py-1.5 px-1 rounded-lg border text-xs transition-all ${
                     selected
                       ? 'border-transparent text-white shadow-sm'
                       : filters.utilities.size > 0
@@ -271,8 +357,8 @@ export function UtilityGridPanel({
                   }`}
                   style={selected ? { backgroundColor: u.color, borderColor: u.color } : {}}
                 >
-                  <span className="font-bold">{u.label}</span>
-                  <span className={`text-[10px] mt-0.5 ${selected ? 'text-white/80' : 'text-gray-400'}`}>
+                  <span className="font-bold text-[11px]">{u.label}</span>
+                  <span className={`text-[9px] mt-0.5 ${selected ? 'text-white/80' : 'text-gray-400'}`}>
                     {utilityCounts[u.id] > 0 ? `${utilityCounts[u.id]} subs` : null}
                     {utilityCounts[u.id] > 0 && circuitsLoaded && circuitCounts[u.id] > 0 ? ' · ' : null}
                     {circuitsLoaded && circuitCounts[u.id] > 0 ? `${circuitCounts[u.id]} circ` : null}
@@ -492,13 +578,13 @@ export function UtilityGridPanel({
       </div>
 
       {/* Footer */}
-      {hasAnyFilter(filters) && (
+      {hasAnyActiveState && (
         <div className="px-4 py-2.5 border-t border-gray-100">
           <button
             onClick={resetAll}
             className="w-full text-xs text-red-500 hover:text-red-700 font-medium py-1 hover:bg-red-50 rounded-md transition-colors"
           >
-            Clear highlights ({activeCount} active)
+            Reset all ({activeCount} active)
           </button>
         </div>
       )}

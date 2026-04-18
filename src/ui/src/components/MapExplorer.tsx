@@ -143,6 +143,7 @@ export function MapExplorer() {
   const [showSubstationLayer, setShowSubstationLayer] = useState(true);
   const [showAllSubstations, setShowAllSubstations] = useState(false);
   const [substationFilters, setSubstationFilters] = useState<SubstationFilters>(defaultSubstationFilters());
+  const [showOverridesOnly, setShowOverridesOnly] = useState(false);
 
   // Substation overrides — loaded from DB on mount, falls back to localStorage
   const [substationOverrides, setSubstationOverrides] = useState<OverrideMap>(() => loadOverrides());
@@ -227,13 +228,17 @@ export function MapExplorer() {
   const filteredCircuits = useMemo<CircuitFeature[]>(() => {
     const utilityActive = substationFilters.utilities.size > 0;
     const minKw = substationFilters.minCircuitCapacityKw;
-    if (!utilityActive && minKw === 0) return allCircuits;
-    return allCircuits.filter(c => {
-      if (utilityActive && !substationFilters.utilities.has(c.utility)) return false;
-      if (minKw > 0 && (c.loadAvailKw == null || c.loadAvailKw < minKw)) return false;
-      return true;
-    });
-  }, [allCircuits, substationFilters]);
+    let result = allCircuits;
+    if (utilityActive || minKw > 0) {
+      result = result.filter(c => {
+        if (utilityActive && !substationFilters.utilities.has(c.utility)) return false;
+        if (minKw > 0 && (c.loadAvailKw == null || c.loadAvailKw < minKw)) return false;
+        return true;
+      });
+    }
+    if (showOverridesOnly) result = result.filter(c => c.hasOverride);
+    return result;
+  }, [allCircuits, substationFilters, showOverridesOnly]);
 
 
   // Segments excluded from the default Market Intelligence filter.
@@ -345,9 +350,10 @@ export function MapExplorer() {
   // DivIcon markers from lingering (e.g. NorCal pins after selecting an LA tract).
   const visibleSubstations = useMemo(() => {
     if (!showSubstationLayer) return [];
-    if (selectedTract != null && !showAllSubstations) return nearbySubstations;
-    return allSubstationsWithOverrides;
-  }, [showSubstationLayer, selectedTract, showAllSubstations, nearbySubstations, allSubstationsWithOverrides]);
+    const base = (selectedTract != null && !showAllSubstations) ? nearbySubstations : allSubstationsWithOverrides;
+    if (showOverridesOnly) return base.filter(s => s.hasOverride);
+    return base;
+  }, [showSubstationLayer, selectedTract, showAllSubstations, nearbySubstations, allSubstationsWithOverrides, showOverridesOnly]);
 
   // Pending tract restoration from saved view — applied in two stages:
   //   Stage 1 (county data loads): set selectedCounty + trigger tract load
@@ -751,6 +757,10 @@ export function MapExplorer() {
                   onToggleShowAll={setShowAllSubstations}
                   circuitColorMode={circuitColorMode}
                   onCircuitColorModeChange={setCircuitColorMode}
+                  substationOverrideCount={Object.keys(substationOverrides).length}
+                  circuitOverrideCount={Object.keys(circuitOverrides).length}
+                  showOverridesOnly={showOverridesOnly}
+                  onToggleShowOverrides={setShowOverridesOnly}
                 />
               )}
             </div>
@@ -1113,7 +1123,18 @@ export function MapExplorer() {
               setEditingSubstationId(nextId);
               if (nextId) setSelectedFeeder(null); // opening substation panel — close circuit panel
             }}
+            overrideViewMode={showOverridesOnly ? 'source' : 'voltera'}
           />
+
+          {/* Overrides-only banner */}
+          {showOverridesOnly && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[500] pointer-events-none">
+              <div className="flex items-center gap-1.5 bg-violet-600/90 text-white text-[11px] font-semibold px-3 py-1 rounded-full shadow-md backdrop-blur-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-white/80" />
+                Overrides Only — showing modified substations &amp; circuits
+              </div>
+            </div>
+          )}
 
           {/* Circuit selected — thin status chip so user knows something is active */}
           {selectedFeeder && (

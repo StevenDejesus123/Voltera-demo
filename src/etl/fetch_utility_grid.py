@@ -804,6 +804,17 @@ def _log_fetch(utility: str, layer: str, row_count: int, conn, logger) -> None:
 # Per-utility fetch orchestrators
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Pass-through normalizers ──────────────────────────────────────────────────
+# GPC, Pepco, BGE, ComEd GeoJSON files are already normalized to the standard
+# schema (section_id, circuit_name, load_hosting_capacity_kw, etc.) by their
+# respective download/normalize scripts.  These pass-throughs let load_from_geojson
+# load them into the DB without re-transforming anything.
+
+def _passthrough(features: list[dict]) -> list[dict]:
+    """Return features unchanged — data already matches the standard schema."""
+    return features
+
+
 NORMALIZERS: dict[str, dict[str, callable]] = {
     "sce": {
         "substations":       normalize_sce_substations,
@@ -822,6 +833,23 @@ NORMALIZERS: dict[str, dict[str, callable]] = {
         "substations":       normalize_sdge_substations,
         "ica_segments":      normalize_sdge_ica_segments,
         "service_territory": normalize_sdge_territory,
+    },
+    # ── East-coast & new utilities — data pre-normalized by download scripts ──
+    "gpc": {
+        "ica_segments": _passthrough,
+    },
+    "pepco": {
+        "ica_segments": _passthrough,
+    },
+    "bge": {
+        "substations":  _passthrough,
+        "ica_segments": _passthrough,
+    },
+    "comed": {
+        "ica_segments": _passthrough,
+    },
+    "nationalgrid": {
+        "ica_segments": _passthrough,
     },
 }
 

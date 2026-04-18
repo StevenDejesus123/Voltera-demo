@@ -1262,13 +1262,16 @@ def _build_nearby_substations_index(
 def _export_substations_json(grid_dir: Path, exports_dir: Path, logger) -> None:
     """Export data/exports/substations.json — flat list of all substation points for frontend map pins."""
     parts = []
-    for util in ("sce", "pge", "ladwp"):
-        path = grid_dir / util / "substations.geojson"
-        if path.exists():
-            try:
-                parts.append(gpd.read_file(path))
-            except Exception as exc:
-                logger.warning("  Could not load substations for %s: %s", util, exc)
+    # Auto-discover all utility directories that have a substations.geojson
+    util_dirs = sorted(p.parent for p in grid_dir.glob("*/substations.geojson"))
+    for util_dir in util_dirs:
+        util = util_dir.name
+        path = util_dir / "substations.geojson"
+        try:
+            parts.append(gpd.read_file(path))
+            logger.info("  Loaded substations: %s", util)
+        except Exception as exc:
+            logger.warning("  Could not load substations for %s: %s", util, exc)
 
     if not parts:
         logger.warning("  No substation data found — substations.json not written")
@@ -1277,8 +1280,10 @@ def _export_substations_json(grid_dir: Path, exports_dir: Path, logger) -> None:
     # Normalize all to WGS84 before concat (parts may have mixed CRS e.g. UTM)
     parts = [p.to_crs("EPSG:4326") if p.crs is not None else p for p in parts]
     subst_all = gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs="EPSG:4326")
-    subst_all["_lat"] = subst_all.geometry.y
-    subst_all["_lng"] = subst_all.geometry.x
+    # Use centroid for any non-Point geometry (e.g. BGE polygon grid squares)
+    centroids = subst_all.geometry.centroid
+    subst_all["_lat"] = centroids.y
+    subst_all["_lng"] = centroids.x
 
     records = []
     for _, row in subst_all.iterrows():
@@ -1320,7 +1325,7 @@ def _export_circuits_json(grid_dir: Path, exports_dir: Path, logger) -> None:
     # it after the fetch fix caused a 1000× inflation (e.g. 3.67 MW → 3,670 MW).
 
     parts = []
-    for util in ("sce", "pge", "ladwp", "sdge"):
+    for util in ("sce", "pge", "ladwp", "sdge", "gpc", "pepco", "bge", "comed"):
         path = grid_dir / util / "ica_segments.geojson"
         if path.exists():
             try:

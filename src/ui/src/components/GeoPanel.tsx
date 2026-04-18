@@ -45,6 +45,7 @@ interface GeoPanelProps {
   emphasizedSubstationIds?: Set<string>;
   highlightedSubstationId?: string | null;
   onClickSubstation?: (s: SubstationFeature) => void;
+  overrideViewMode?: 'source' | 'voltera';
 }
 
 type ViewMode = 'map' | 'table';
@@ -80,6 +81,7 @@ export function GeoPanel({
   emphasizedSubstationIds,
   highlightedSubstationId,
   onClickSubstation,
+  overrideViewMode = 'voltera',
 }: GeoPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [sortField, setSortField] = useState<SortField>('rank');
@@ -551,6 +553,7 @@ export function GeoPanel({
                     emphasizedSubstationIds={emphasizedSubstationIds}
                     highlightedSubstationId={highlightedSubstationId}
                     onClickSubstation={onClickSubstation}
+                    overrideViewMode={overrideViewMode}
                   />
 
                   {/* Zoning detail card */}

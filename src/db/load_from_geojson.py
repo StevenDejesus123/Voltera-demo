@@ -39,9 +39,17 @@ UPSERT_FNS = {
     "service_territory": _replace_service_territory,
 }
 
+# GeoJSON files on disk are already normalized (saved that way by fetch_utility_grid).
+# Re-running the normalizer would look for raw field names that no longer exist and
+# produce empty IDs, collapsing all rows into one via ON CONFLICT.
+# Always pass through — upsert functions read the standard fields directly.
+def _passthrough(features):
+    return features
+
 
 def load_utility(utility: str, grid_dir: Path, conn, logger) -> None:
-    norms    = NORMALIZERS.get(utility, {})
+    # Use layers from NORMALIZERS to know which files to load, but skip re-normalization
+    norms    = {k: _passthrough for k in NORMALIZERS.get(utility, {})}
     util_dir = grid_dir / utility
 
     logger.info("=== Loading %s from GeoJSON files ===", utility.upper())
@@ -111,7 +119,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--utility", type=str, default=None,
         choices=list(NORMALIZERS.keys()),
-        help="Utility to load (default: all). Options: sce, pge, ladwp, sdge",
+        help="Utility to load (default: all). Options: " + ", ".join(NORMALIZERS.keys()),
     )
     args = parser.parse_args()
     main(utilities=[args.utility] if args.utility else None)

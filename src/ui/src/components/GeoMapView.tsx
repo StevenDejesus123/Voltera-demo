@@ -104,6 +104,8 @@ interface GeoMapViewProps {
   emphasizedSubstationIds?: Set<string>;
   highlightedSubstationId?: string | null;
   onClickSubstation?: (s: SubstationFeature) => void;
+  /** When 'source', utility data overrides are NOT applied — used to key map layers so they remount */
+  overrideViewMode?: 'source' | 'voltera';
 }
 
 /**
@@ -408,6 +410,7 @@ export function GeoMapView({
   emphasizedSubstationIds,
   highlightedSubstationId,
   onClickSubstation,
+  overrideViewMode = 'voltera',
 }: GeoMapViewProps) {
   const lassoEnabledRef = useRef(false);
   lassoEnabledRef.current = lassoEnabled;
@@ -621,12 +624,13 @@ export function GeoMapView({
 
         {/* Circuit polylines — distribution-level load availability, rendered beneath substation pins */}
         {geoLevel === 'Tract' && circuits.length > 0 && (
-          <CircuitMapLayer circuits={circuits} visible={true} selectedFeeder={selectedFeeder} onFeederClick={onFeederClick} colorMode={circuitColorMode} />
+          <CircuitMapLayer key={`circ-${overrideViewMode}`} circuits={circuits} visible={true} selectedFeeder={selectedFeeder} onFeederClick={onFeederClick} colorMode={circuitColorMode} />
         )}
 
         {/* Substation pins — shown when a tract is selected and nearby substations are available */}
         {geoLevel === 'Tract' && substations.length > 0 && (
           <SubstationMapLayer
+            key={`sub-${overrideViewMode}`}
             substations={substations}
             nearbySubstationIds={nearbySubstationIds}
             emphasizedIds={emphasizedSubstationIds}
