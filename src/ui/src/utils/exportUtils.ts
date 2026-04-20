@@ -241,7 +241,10 @@ export function exportToGeoJSON(
   const polygonMap = buildPolygonMap(geoLevel, options.includePolygons);
   const sites = resolveSitesForExport(options.sites, options.siteCountyFilter);
   const siteFeatures = buildSiteGeoJSONFeatures(sites);
+  const substationFeatures = buildSubstationGeoJSONFeatures(options.substations);
+  const circuitFeatures = buildCircuitGeoJSONFeatures(options.circuits);
   const hasSites = siteFeatures.length > 0;
+  const hasUtility = substationFeatures.length > 0 || circuitFeatures.length > 0;
 
   // Smart merge: union all selected polygons into one shape
   if (useSmartMerge && regions.length > 1 && polygonMap.size > 0) {
@@ -257,9 +260,9 @@ export function exportToGeoJSON(
           ...aggregates,
           ...(mergedAnalysis && { analysis: mergedAnalysis }),
         },
-      }, ...siteFeatures];
+      }, ...siteFeatures, ...substationFeatures, ...circuitFeatures];
 
-      downloadGeoJSON(features, exportFilename('ranking-export-merged.geojson', hasSites));
+      downloadGeoJSON(features, exportFilename('ranking-export-merged.geojson', hasSites || hasUtility));
       return;
     }
   }
@@ -299,7 +302,10 @@ export function exportToGeoJSON(
     };
   });
 
-  downloadGeoJSON([...features, ...siteFeatures], exportFilename('ranking-export.geojson', hasSites));
+  downloadGeoJSON(
+    [...features, ...siteFeatures, ...substationFeatures, ...circuitFeatures],
+    exportFilename('ranking-export.geojson', hasSites || hasUtility),
+  );
 }
 
 export function exportToKML(
@@ -668,6 +674,45 @@ function buildKMLPlacemark(opts: KMLPlacemarkOptions): string {
 // ---------------------------------------------------------------------------
 // Site pin helpers (Market Intelligence pins in KML/GeoJSON)
 // ---------------------------------------------------------------------------
+
+/** Builds GeoJSON Point features for utility substations. */
+function buildSubstationGeoJSONFeatures(substations: SubstationFeature[] | undefined): any[] {
+  if (!substations || substations.length === 0) return [];
+  return substations.map(s => ({
+    type: 'Feature' as const,
+    geometry: { type: 'Point' as const, coordinates: [s.lng, s.lat] },
+    properties: {
+      featureType: 'utility_substation',
+      name: s.name,
+      utility: s.utility,
+      capacityMw: s.capacityMw ?? null,
+      voltageKv: s.voltageKv ?? null,
+    },
+  }));
+}
+
+/** Builds GeoJSON LineString features for utility circuits. */
+function buildCircuitGeoJSONFeatures(circuits: CircuitFeature[] | undefined): any[] {
+  if (!circuits || circuits.length === 0) return [];
+  const features: any[] = [];
+  for (const circuit of circuits) {
+    for (const line of circuit.coords) {
+      features.push({
+        type: 'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: line },
+        properties: {
+          featureType: 'utility_circuit',
+          circuitName: circuit.circuitName ?? null,
+          substationName: circuit.substationName ?? null,
+          utility: circuit.utility,
+          voltageKv: circuit.voltageKv ?? null,
+          loadAvailKw: circuit.loadAvailKw ?? null,
+        },
+      });
+    }
+  }
+  return features;
+}
 
 /** Builds GeoJSON Point features from site pins, filtering out entries without coordinates. */
 function buildSiteGeoJSONFeatures(sites: CompetitorSite[] | undefined): any[] {

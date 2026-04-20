@@ -699,7 +699,7 @@ export function FilterPanel({
         )}
 
         {/* Include Utility Grid - for CSV/GeoJSON/KML when substation layer is visible */}
-        {exportFormat !== 'Shapefile' && showSubstationLayer && substations.length > 0 && (
+        {exportFormat !== 'Shapefile' && showSubstationLayer && (substations.length > 0 || circuits.length > 0) && (
           <div className="mb-3 space-y-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -715,7 +715,10 @@ export function FilterPanel({
             </label>
             {includeUtilityGrid && (
               <p className="text-xs text-gray-500 ml-6">
-                {substations.length.toLocaleString()} substation{substations.length !== 1 ? 's' : ''}{circuits.length > 0 ? ` and ${circuits.length.toLocaleString()} circuit${circuits.length !== 1 ? 's' : ''}` : ''} will be exported as a separate layer.
+                {[
+                  substations.length > 0 ? `${substations.length.toLocaleString()} substation${substations.length !== 1 ? 's' : ''}` : '',
+                  circuits.length > 0 ? `${circuits.length.toLocaleString()} circuit${circuits.length !== 1 ? 's' : ''}` : '',
+                ].filter(Boolean).join(' and ')} will be exported as a separate layer.
               </p>
             )}
           </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Dispatch, SetStateAction } from 'react';
 import { FilterPanel } from './FilterPanel';
 import { GeoPanel } from './GeoPanel';
-import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds } from './UtilityGridPanel';
+import { UtilityGridPanel, defaultSubstationFilters, getEmphasisIds, filterSubstations } from './UtilityGridPanel';
 import type { SubstationFilters } from './UtilityGridPanel';
 import { loadOverrides, fetchOverrides, applyOverrides } from '../utils/substationOverrides';
 import type { OverrideMap } from '../utils/substationOverrides';
@@ -222,6 +222,12 @@ export function MapExplorer() {
 
   // Count of emphasized substations (for the panel header)
   const emphasizedCount = emphasizedSubstationIds.size;
+
+  // Substations for export — apply all active filters so export matches what the panel shows.
+  const filteredSubstationsForExport = useMemo(
+    () => filterSubstations(allSubstationsWithOverrides, substationFilters),
+    [allSubstationsWithOverrides, substationFilters],
+  );
 
   // Filter circuits by utility and min-capacity threshold only.
   // Capacity tier quick-select is substation-only — circuits are not hidden by tier.
@@ -1038,7 +1044,7 @@ export function MapExplorer() {
           onToggleCollapse={() => setFilterCollapsed(prev => !prev)}
           filteredCompetitorSites={selectedMSA ? msaCompetitorSites : competitorSites}
           showCompetitorLayer={showCompetitorLayer}
-          substations={allSubstationsWithOverrides}
+          substations={filteredSubstationsForExport}
           circuits={filteredCircuits}
           showSubstationLayer={showSubstationLayer}
         />
