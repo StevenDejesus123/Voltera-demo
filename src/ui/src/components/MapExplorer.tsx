@@ -1038,6 +1038,9 @@ export function MapExplorer() {
           onToggleCollapse={() => setFilterCollapsed(prev => !prev)}
           filteredCompetitorSites={selectedMSA ? msaCompetitorSites : competitorSites}
           showCompetitorLayer={showCompetitorLayer}
+          substations={allSubstationsWithOverrides}
+          circuits={filteredCircuits}
+          showSubstationLayer={showSubstationLayer}
         />
 
         {/* Center - 3 Panel Layout */}

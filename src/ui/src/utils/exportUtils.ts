@@ -1,4 +1,5 @@
-import { Region, GeoLevel, RegionDetails, CompetitorSite } from '../types';
+import { Region, GeoLevel, RegionDetails, CompetitorSite, SubstationFeature } from '../types';
+import type { CircuitFeature } from '../components/CircuitMapLayer';
 import { getPolygonsForLevel } from '../dataLoader/geoPolygons';
 import union from '@turf/union';
 import buffer from '@turf/buffer';
@@ -16,6 +17,10 @@ export interface ExportOptions {
   sites?: CompetitorSite[];
   /** When set, pins are filtered to only those within these county boundaries. */
   siteCountyFilter?: Region[];
+  /** Utility substations to include as a separate export layer. */
+  substations?: SubstationFeature[];
+  /** Utility circuits to include as a separate export layer. */
+  circuits?: CircuitFeature[];
 }
 
 interface RegionAggregates {
@@ -53,18 +58,31 @@ function exportFilename(base: string, hasSites: boolean): string {
 }
 
 /**
- * Wraps region placemarks and site pin placemarks into KML folders when both
- * are present, otherwise returns region placemarks alone.
+ * Wraps region placemarks, site pin placemarks, and optional utility grid
+ * placemarks into KML folders when multiple layers are present.
  */
 function assembleKMLContent(
   regionFolderName: string,
   regionPlacemarks: string,
   sites: CompetitorSite[] | undefined,
+  substations?: SubstationFeature[],
+  circuits?: CircuitFeature[],
 ): string {
-  if (!sites || sites.length === 0) return regionPlacemarks;
-  const sitePinsKML = buildSitePinsKML(sites);
-  return wrapInKMLFolder(regionFolderName, regionPlacemarks)
-    + '\n' + wrapInKMLFolder('Site Locations', sitePinsKML);
+  const hasExtra = (sites && sites.length > 0)
+    || (substations && substations.length > 0)
+    || (circuits && circuits.length > 0);
+  if (!hasExtra) return regionPlacemarks;
+  let result = wrapInKMLFolder(regionFolderName, regionPlacemarks);
+  if (substations && substations.length > 0) {
+    result += '\n' + wrapInKMLFolder('Utility Substations', buildSubstationPlacemarks(substations), false);
+  }
+  if (circuits && circuits.length > 0) {
+    result += '\n' + wrapInKMLFolder('Utility Circuits', buildCircuitPlacemarks(circuits), false);
+  }
+  if (sites && sites.length > 0) {
+    result += '\n' + wrapInKMLFolder('Site Locations', buildSitePinsKML(sites));
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,8 +93,11 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
   const { analysisData } = options;
   const sites = resolveSitesForExport(options.sites, options.siteCountyFilter);
   const hasSites = (sites != null && sites.length > 0);
+  const substations = options.substations && options.substations.length > 0 ? options.substations : undefined;
+  const circuits = options.circuits && options.circuits.length > 0 ? options.circuits : undefined;
+  const hasUtility = !!(substations || circuits);
 
-  const typeHeader = hasSites ? ['Type'] : [];
+  const typeHeader = (hasSites || hasUtility) ? ['Type'] : [];
   const baseHeaders = ['Rank', 'Region ID', 'Region Name', 'Score', 'Customer Count', 'In Geofence', 'Geo Level'];
   const siteHeaders = hasSites
     ? ['Company', 'Category', 'Status', 'MSA', 'Address', 'City', 'State', 'Zoning', 'Stalls', 'Segment', 'Opportunity', 'Utility', 'Notes']
@@ -93,8 +114,10 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
   const emptyRegionCols = baseHeaders.length + analysisHeaders.length;
   const emptySiteCols = siteHeaders.length;
 
+  const hasTypeCol = hasSites || hasUtility;
+
   const rows = regions.map(region => {
-    const type = hasSites ? ['region'] : [];
+    const type = hasTypeCol ? ['region'] : [];
     const base = [
       region.rank,
       region.id,
@@ -118,9 +141,9 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
     const aggregated = aggregateDetails(detailsList);
     const avgScore = regions.reduce((s, r) => s + r.score, 0) / regions.length;
     const totalCustomers = regions.reduce((s, r) => s + r.customerCount, 0);
-    const type = hasSites ? ['SUMMARY'] : [];
+    const type = hasTypeCol ? ['SUMMARY'] : [];
     const summaryBase = [
-      hasSites ? '' : 'SUMMARY',
+      hasTypeCol ? '' : 'SUMMARY',
       '',
       `"${regions.length} regions aggregated"`,
       avgScore.toFixed(4),
@@ -161,12 +184,52 @@ export function exportToCSV(regions: Region[], options: ExportOptions = {}): voi
     }
   }
 
+  // Append utility substation rows
+  if (substations) {
+    const padLen = baseHeaders.length + analysisHeaders.length + emptySiteCols;
+    for (const s of substations) {
+      const type = ['substation'];
+      // Columns: Rank(ID), RegionID(utility), RegionName(name), Score(capacity), Customers(voltage), InGeo(override), GeoLevel(notes), ...pad
+      const subRow = [
+        s.id,
+        `"${(s.utility || '').replace(/"/g, '""')}"`,
+        `"${(s.name || '').replace(/"/g, '""')}"`,
+        s.capacityMw != null ? `${s.capacityMw} MW` : '',
+        s.voltageKv != null ? `${s.voltageKv} kV` : '',
+        s.hasOverride ? 'Yes' : 'No',
+        `${s.lat},${s.lng}`,
+      ];
+      const pad = Array(Math.max(0, padLen - subRow.length)).fill('');
+      rows.push([...type, ...subRow, ...pad] as any);
+    }
+  }
+
+  // Append utility circuit rows
+  if (circuits) {
+    const padLen = baseHeaders.length + analysisHeaders.length + emptySiteCols;
+    for (const c of circuits) {
+      const type = ['circuit'];
+      const circRow = [
+        c.id,
+        `"${(c.utility || '').replace(/"/g, '""')}"`,
+        `"${(c.circuitName || '').replace(/"/g, '""')}"`,
+        c.loadAvailKw != null ? `${c.loadAvailKw} kW` : '',
+        c.voltageKv != null ? `${c.voltageKv} kV` : '',
+        c.hasOverride ? 'Yes' : 'No',
+        `"${(c.substationName || '').replace(/"/g, '""')}"`,
+      ];
+      const pad = Array(Math.max(0, padLen - circRow.length)).fill('');
+      rows.push([...type, ...circRow, ...pad] as any);
+    }
+  }
+
+  const hasAnyExtra = hasSites || hasUtility;
   const csvContent = [
     headers.join(','),
     ...rows.map(row => row.join(','))
   ].join('\n');
 
-  downloadFile(csvContent, exportFilename('ranking-export.csv', hasSites), 'text/csv');
+  downloadFile(csvContent, exportFilename('ranking-export.csv', hasAnyExtra), 'text/csv');
 }
 
 export function exportToGeoJSON(
@@ -247,6 +310,8 @@ export function exportToKML(
   const { useSmartMerge = false, analysisData } = options;
   const polygonMap = buildPolygonMap(geoLevel, options.includePolygons);
   const sites = resolveSitesForExport(options.sites, options.siteCountyFilter);
+  const substations = options.substations && options.substations.length > 0 ? options.substations : undefined;
+  const circuits = options.circuits && options.circuits.length > 0 ? options.circuits : undefined;
   const hasSites = (sites != null && sites.length > 0);
 
   // Build a color scale matching the UI map choropleth
@@ -287,7 +352,7 @@ export function exportToKML(
         isPolygon: true,
       });
 
-      const content = assembleKMLContent('Merged Boundary', placemark, sites);
+      const content = assembleKMLContent('Merged Boundary', placemark, sites, substations, circuits);
       downloadKML(content, 'Site Ranking Export - Merged', `${regions.length} regions merged`,
         exportFilename('ranking-export-merged.kml', hasSites));
       return;
@@ -316,7 +381,7 @@ export function exportToKML(
     });
   }).join('\n');
 
-  const content = assembleKMLContent('Ranked Regions', regionPlacemarks, sites);
+  const content = assembleKMLContent('Ranked Regions', regionPlacemarks, sites, substations, circuits);
   downloadKML(content, 'Site Ranking Export', 'AI-ranked regions for site selection',
     exportFilename('ranking-export.kml', hasSites));
 }
@@ -742,6 +807,98 @@ function filterSitesToRegions(sites: CompetitorSite[], regions: Region[], polygo
     if (s.lat == null || s.lng == null) return false;
     return geometries.some(geom => isPointInGeometry(s.lng!, s.lat!, geom));
   });
+}
+
+// ---------------------------------------------------------------------------
+// Utility grid KML builders
+// ---------------------------------------------------------------------------
+
+/** Returns a KML color (AABBGGRR) for a substation based on capacity in MW. */
+function substationCapacityColor(capacityMw: number | null): string {
+  if (capacityMw == null) return hexToKMLColor('#6b7280'); // gray — unknown
+  if (capacityMw >= 50)   return hexToKMLColor('#16a34a'); // green — ≥50 MW
+  if (capacityMw >= 20)   return hexToKMLColor('#ca8a04'); // yellow — 20–50 MW
+  if (capacityMw >= 5)    return hexToKMLColor('#ea580c'); // orange — 5–20 MW
+  return hexToKMLColor('#dc2626');                          // red — <5 MW
+}
+
+/** Returns a KML color (AABBGGRR) for a circuit based on load availability in kW. */
+function circuitCapacityColor(loadAvailKw: number | null): string {
+  if (loadAvailKw == null)   return hexToKMLColor('#6b7280', 0xcc); // gray
+  if (loadAvailKw >= 10000)  return hexToKMLColor('#16a34a', 0xcc); // green — ≥10 MW
+  if (loadAvailKw >= 3000)   return hexToKMLColor('#ca8a04', 0xcc); // yellow — 3–10 MW
+  if (loadAvailKw >= 500)    return hexToKMLColor('#ea580c', 0xcc); // orange — 0.5–3 MW
+  return hexToKMLColor('#dc2626', 0xcc);                             // red — <500 kW
+}
+
+function buildSubstationPlacemarks(substations: SubstationFeature[]): string {
+  return substations
+    .map(s => {
+      const name = escapeXml(s.name || s.id);
+      const capStr = s.capacityMw != null ? `${s.capacityMw} MW` : 'Unknown';
+      const voltStr = s.voltageKv != null ? `${s.voltageKv} kV` : 'Unknown';
+      const overrideNote = s.hasOverride ? `<br/><b style="color:purple">⚑ Voltera Override</b>${s.overrideNotes ? `<br/><i>${escapeXml(s.overrideNotes)}</i>` : ''}` : '';
+      const color = substationCapacityColor(s.capacityMw);
+      return `
+    <Placemark>
+      <name>${name}</name>
+      <description><![CDATA[<b>Utility:</b> ${escapeXml(s.utility)}<br/>
+<b>Capacity:</b> ${capStr}<br/>
+<b>Voltage:</b> ${voltStr}${overrideNote}
+      ]]></description>
+      <Point>
+        <coordinates>${s.lng},${s.lat},0</coordinates>
+      </Point>
+      <Style>
+        <IconStyle>
+          <color>${color}</color>
+          <scale>0.9</scale>
+          <Icon><href>http://maps.google.com/mapfiles/kml/shapes/square.png</href></Icon>
+        </IconStyle>
+        <LabelStyle><scale>0</scale></LabelStyle>
+      </Style>
+    </Placemark>`;
+    })
+    .join('\n');
+}
+
+function buildCircuitPlacemarks(circuits: CircuitFeature[]): string {
+  return circuits
+    .flatMap(c => {
+      if (!c.coords || c.coords.length === 0) return [];
+      const name = escapeXml(c.circuitName || c.id);
+      const loadStr = c.loadAvailKw != null ? `${c.loadAvailKw.toLocaleString()} kW` : 'Unknown';
+      const voltStr = c.voltageKv != null ? `${c.voltageKv} kV` : 'Unknown';
+      const pvStr = c.pvHostingKw != null ? `${c.pvHostingKw.toLocaleString()} kW` : 'Unknown';
+      const overrideNote = c.hasOverride ? `<br/><b style="color:purple">⚑ Voltera Override</b>${c.overrideNotes ? `<br/><i>${escapeXml(c.overrideNotes)}</i>` : ''}` : '';
+      const lineColor = circuitCapacityColor(c.loadAvailKw);
+      const lines = c.coords.map(line => {
+        const coords = line.map(([lng, lat]) => `${lng},${lat},0`).join(' ');
+        return `
+    <Placemark>
+      <name>${name}</name>
+      <description><![CDATA[<b>Circuit:</b> ${name}<br/>
+<b>Substation:</b> ${escapeXml(c.substationName)}<br/>
+<b>Utility:</b> ${escapeXml(c.utility)}<br/>
+<b>Load Avail:</b> ${loadStr}<br/>
+<b>Voltage:</b> ${voltStr}<br/>
+<b>PV Hosting:</b> ${pvStr}${overrideNote}
+      ]]></description>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>${coords}</coordinates>
+      </LineString>
+      <Style>
+        <LineStyle>
+          <color>${lineColor}</color>
+          <width>2</width>
+        </LineStyle>
+      </Style>
+    </Placemark>`;
+      });
+      return lines;
+    })
+    .join('\n');
 }
 
 /** Builds KML placemarks string from site pins, skipping entries without valid coordinates. */

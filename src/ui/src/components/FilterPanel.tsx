@@ -1,5 +1,6 @@
 import { Download, Zap, ChevronDown, PanelLeftClose, PanelLeftOpen, Loader2, MapPin } from 'lucide-react';
-import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails, CompetitorSite } from '../types';
+import { Segment, Region, WhatIfScenario, GeoLevel, RegionDetails, CompetitorSite, SubstationFeature } from '../types';
+import type { CircuitFeature } from './CircuitMapLayer';
 import { exportToCSV, exportToGeoJSON, exportToKML, exportToShapefile, exportSitePinsToShapefile, ExportOptions } from '../utils/exportUtils';
 import { ensureDetailsLoaded, getRegionDetails, loadTractDetailsForCounty } from '../dataLoader/frontendLoader';
 import { useState } from 'react';
@@ -37,6 +38,9 @@ interface FilterPanelProps {
   onToggleCollapse?: () => void;
   filteredCompetitorSites?: CompetitorSite[];
   showCompetitorLayer?: boolean;
+  substations?: SubstationFeature[];
+  circuits?: CircuitFeature[];
+  showSubstationLayer?: boolean;
 }
 
 export function FilterPanel({
@@ -71,6 +75,9 @@ export function FilterPanel({
   onToggleCollapse,
   filteredCompetitorSites = [],
   showCompetitorLayer = false,
+  substations = [],
+  circuits = [],
+  showSubstationLayer = false,
 }: FilterPanelProps) {
   const [msaDropdownOpen, setMsaDropdownOpen] = useState(false);
   const [countyDropdownOpen, setCountyDropdownOpen] = useState(false);
@@ -88,6 +95,7 @@ export function FilterPanel({
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [useSmartMerge, setUseSmartMerge] = useState(false);
   const [includeSitePins, setIncludeSitePins] = useState(false);
+  const [includeUtilityGrid, setIncludeUtilityGrid] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingPins, setIsExportingPins] = useState(false);
 
@@ -172,6 +180,8 @@ export function FilterPanel({
         analysisData: analysisData.size > 0 ? analysisData : undefined,
         sites: sitesForExport,
         siteCountyFilter: countyFilter,
+        substations: includeUtilityGrid && substations.length > 0 ? substations : undefined,
+        circuits: includeUtilityGrid && circuits.length > 0 ? circuits : undefined,
       };
 
       if (exportFormat === 'CSV') {
@@ -683,6 +693,29 @@ export function FilterPanel({
             {includeSitePins && (
               <p className="text-xs text-gray-500 ml-6">
                 {filteredCompetitorSites.length} site{filteredCompetitorSites.length !== 1 ? 's' : ''} from Market Intelligence will be included as point markers.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Include Utility Grid - for CSV/GeoJSON/KML when substation layer is visible */}
+        {exportFormat !== 'Shapefile' && showSubstationLayer && substations.length > 0 && (
+          <div className="mb-3 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeUtilityGrid}
+                onChange={(e) => setIncludeUtilityGrid(e.target.checked)}
+                className="w-4 h-4 text-violet-600 rounded border-gray-300 focus:ring-violet-500"
+              />
+              <span className="text-sm text-gray-700 flex items-center gap-1">
+                <Zap className="w-3.5 h-3.5 text-violet-600" />
+                Include utility grid
+              </span>
+            </label>
+            {includeUtilityGrid && (
+              <p className="text-xs text-gray-500 ml-6">
+                {substations.length.toLocaleString()} substation{substations.length !== 1 ? 's' : ''}{circuits.length > 0 ? ` and ${circuits.length.toLocaleString()} circuit${circuits.length !== 1 ? 's' : ''}` : ''} will be exported as a separate layer.
               </p>
             )}
           </div>

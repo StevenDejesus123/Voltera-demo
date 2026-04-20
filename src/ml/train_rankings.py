@@ -1341,10 +1341,12 @@ def _build_target_col_name(buffer_miles: int, segment: str) -> str:
 def _prepare_model_inputs(
     matrices_selected: Dict[str, Dict[str, pd.DataFrame]],
     config: Dict,
+    target_y_cfg: Dict | None = None,
     ) -> Dict[str, Dict[str, pd.DataFrame]]:
     """
     For each level (msa, county, tract):
-      - Read target definition from config['ml']['target_y'][level]:
+      - Read target definition from target_y_cfg (explicit) or
+        config['ml']['target_y'] (default):
           * buffer_miles
           * segment (AV / Non-AV)
       - Build the target column name, e.g. 'Count Customer - 3 mile - AV'.
@@ -1363,7 +1365,7 @@ def _prepare_model_inputs(
           }
     """
 
-    target_cfg = config.get("ml", {}).get("target_y", {})
+    target_cfg = target_y_cfg if target_y_cfg is not None else config.get("ml", {}).get("target_y", {})
 
     result: Dict[str, Dict[str, pd.DataFrame]] = {}
 
@@ -1677,17 +1679,22 @@ def _train_logistic_for_level(
 def _save_models_and_rankings(
     results: Dict[str, Dict[str, Any]],
     config: Dict,
+    ml_outputs_key: str = "ml_outputs",
 ) -> None:
     """
     Save trained models for each level (msa, county, tract) and write
     a single rankings workbook with sheets: MSA, County, Tract.
+
+    ml_outputs_key selects which config["ml"] block to use for filenames:
+      "ml_outputs"     → AV segment (default)
+      "non_av_outputs" → Non-AV segment
     """
 
     if "paths" not in config or "outputs" not in config["paths"]:
         raise KeyError("[train_rankings] Missing config.paths.outputs in settings.yaml")
 
     outputs_root = Path(config["paths"]["outputs"])
-    ml_outputs_cfg = config.get("ml", {}).get("ml_outputs", {})
+    ml_outputs_cfg = config.get("ml", {}).get(ml_outputs_key, {})
     outputs_root.mkdir(parents=True, exist_ok=True)
 
     # ---- 1) Save models (unchanged behavior) ----
@@ -1735,11 +1742,11 @@ def _save_models_and_rankings(
 # -----------------------------------------------------------
 # Main entrypoint (still empty except Step 1)
 # -----------------------------------------------------------
-def run_training(config: Dict) -> Dict[str, str]:
+def run_training(config: Dict, skip_non_av: bool = False) -> Dict[str, Any]:
     """
     Main training pipeline.
-    Step 1: Resolve paths + load data (done)
-    Step 2+: Add transformations, feature engineering, training, scoring, and outputs.
+    Trains AV segment models (MSA/County/Tract) and optionally Non-AV models
+    when non_av_target_y + non_av_outputs are present in config and skip_non_av=False.
     """
     logger.info("=== Starting ranking model training ===")
 
@@ -1796,8 +1803,44 @@ def run_training(config: Dict) -> Dict[str, str]:
         logger.info("=== Training logistic model for level: %s ===", level)
         results[level] = _train_logistic_for_level(level, model_inputs[level], config)
 
-    # Step 13: save trained models and rankings
-    _save_models_and_rankings(results, config)
-    logger.info("Step 13 complete — models and rankings saved to outputs folder.")
+    # Step 13: save AV trained models and rankings
+    _save_models_and_rankings(results, config, ml_outputs_key="ml_outputs")
+    logger.info("Step 13 complete — AV models and rankings saved to outputs folder.")
 
-    return {"status": "training_complete", "levels": list(results.keys())}
+    training_summary: Dict[str, Any] = {
+        "status": "training_complete",
+        "av_levels": list(results.keys()),
+    }
+
+    # Step 14 (optional): Non-AV segment — train if config provides non_av_target_y
+    non_av_target_cfg = config.get("ml", {}).get("non_av_target_y")
+    non_av_outputs_cfg = config.get("ml", {}).get("non_av_outputs")
+
+    if not skip_non_av and non_av_target_cfg and non_av_outputs_cfg:
+        logger.info("=== Step 14: Training Non-AV segment models ===")
+        model_inputs_nonav = _prepare_model_inputs(
+            data_fs, config, target_y_cfg=non_av_target_cfg
+        )
+        results_nonav: Dict[str, Any] = {}
+        for level in ["msa", "county", "tract"]:
+            logger.info("=== Training Non-AV logistic model for level: %s ===", level)
+            try:
+                results_nonav[level] = _train_logistic_for_level(
+                    level, model_inputs_nonav[level], config
+                )
+            except (ValueError, KeyError) as exc:
+                logger.warning(
+                    "Non-AV training skipped for level '%s': %s", level, exc
+                )
+        if results_nonav:
+            _save_models_and_rankings(results_nonav, config, ml_outputs_key="non_av_outputs")
+            logger.info("Step 14 complete — Non-AV models saved.")
+        training_summary["non_av_levels"] = list(results_nonav.keys())
+    elif skip_non_av:
+        logger.info("Step 14 skipped — --skip-non-av flag set.")
+    else:
+        logger.info(
+            "Step 14 skipped — non_av_target_y / non_av_outputs not found in config."
+        )
+
+    return training_summary
